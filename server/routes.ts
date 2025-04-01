@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertUserSchema, insertTestSchema, insertQuestionSchema, insertTestAttemptSchema, insertAnswerSchema, insertAnalyticsSchema } from "@shared/schema";
 import { z } from "zod";
 import { processOCRImage } from "./lib/tesseract";
-import { evaluateSubjectiveAnswer } from "./lib/openai";
+import { evaluateSubjectiveAnswer, aiChat, generateStudyPlan, analyzeTestPerformance } from "./lib/openai";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
@@ -553,6 +553,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(200).json(updatedAnswer);
     } catch (error) {
       res.status(500).json({ message: "Failed to evaluate answer" });
+    }
+  });
+  
+  // AI Chat route
+  app.post("/api/ai-chat", async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.userId) {
+        return res.status(401).json({ message: "Not authenticated" });
+      }
+      
+      const { messages } = req.body;
+      
+      if (!messages || !Array.isArray(messages)) {
+        return res.status(400).json({ message: "Invalid messages format" });
+      }
+      
+      const response = await aiChat(messages);
+      
+      res.status(200).json(response);
+    } catch (error) {
+      console.error("AI chat error:", error);
+      res.status(500).json({ message: "Failed to generate AI response" });
     }
   });
 
