@@ -5,6 +5,39 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "sk-dummy-key-for-development" 
 });
 
+interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+interface ChatResponse {
+  content: string;
+}
+
+export async function aiChat(messages: ChatMessage[]): Promise<ChatResponse> {
+  try {
+    // Ensure there's a system message if not provided
+    if (!messages.some(msg => msg.role === "system")) {
+      messages.unshift({
+        role: "system",
+        content: "You are an AI tutor for high school students. You're knowledgeable about physics, chemistry, mathematics, biology, and computer science. Provide clear, concise explanations. Include examples when helpful. For math problems, show step-by-step solutions. Keep explanations appropriate for high school level understanding. Be encouraging and supportive."
+      });
+    }
+
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: messages,
+    });
+
+    return {
+      content: response.choices[0].message.content || "I don't have a response for that."
+    };
+  } catch (error) {
+    console.error("AI chat error:", error);
+    throw new Error("Failed to generate response. Please try again later.");
+  }
+}
+
 interface EvaluationResult {
   score: number;
   confidence: number;
@@ -39,14 +72,24 @@ export async function evaluateSubjectiveAnswer(
       response_format: { type: "json_object" }
     });
 
-    const result = JSON.parse(response.choices[0].message.content) as EvaluationResult;
-    
-    // Ensure values are within expected ranges
-    return {
-      score: Math.max(0, Math.min(maxMarks, result.score)),
-      confidence: Math.max(0, Math.min(100, result.confidence)),
-      feedback: result.feedback
-    };
+    const content = response.choices[0]?.message?.content || "{}";
+    try {
+      const result = JSON.parse(content) as EvaluationResult;
+      
+      // Ensure values are within expected ranges
+      return {
+        score: Math.max(0, Math.min(maxMarks, result.score)),
+        confidence: Math.max(0, Math.min(100, result.confidence)),
+        feedback: result.feedback
+      };
+    } catch (parseError) {
+      console.error("JSON parse error in evaluation:", parseError);
+      return {
+        score: 0,
+        confidence: 0,
+        feedback: "Error processing evaluation. Please review manually."
+      };
+    }
   } catch (error) {
     console.error("AI evaluation error:", error);
     // Fallback response if AI service fails
@@ -86,7 +129,21 @@ export async function generateStudyPlan(
       response_format: { type: "json_object" }
     });
 
-    return JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0]?.message?.content || "{}";
+    try {
+      return JSON.parse(content) as { plan: string, resources: Array<{ title: string, type: string, url?: string }> };
+    } catch (parseError) {
+      console.error("JSON parse error in study plan:", parseError);
+      return {
+        plan: "Error generating study plan. Please try again later.",
+        resources: [
+          {
+            title: "General review resources",
+            type: "general"
+          }
+        ]
+      };
+    }
   } catch (error) {
     console.error("Study plan generation error:", error);
     // Fallback response
@@ -129,7 +186,21 @@ export async function analyzeTestPerformance(
       response_format: { type: "json_object" }
     });
 
-    return JSON.parse(response.choices[0].message.content);
+    const content = response.choices[0]?.message?.content || "{}";
+    try {
+      return JSON.parse(content) as { 
+        averageScore: number, 
+        hardestQuestions: Array<{ questionId: number, question: string, avgScore: number }>,
+        recommendations: string
+      };
+    } catch (parseError) {
+      console.error("JSON parse error in test analysis:", parseError);
+      return {
+        averageScore: testResults.reduce((sum, result) => sum + result.score, 0) / testResults.length,
+        hardestQuestions: [],
+        recommendations: "Error analyzing test performance. Please review individual results."
+      };
+    }
   } catch (error) {
     console.error("Test analysis error:", error);
     // Fallback response
