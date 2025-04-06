@@ -6,8 +6,11 @@ import {
   answers, type Answer, type InsertAnswer,
   analytics, type Analytics, type InsertAnalytics
 } from "@shared/schema";
+import session from "express-session";
 
 export interface IStorage {
+  // Session store
+  sessionStore: session.Store;
   // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
@@ -56,6 +59,8 @@ export class MemStorage implements IStorage {
   private answers: Map<number, Answer>;
   private analytics: Map<number, Analytics>;
   
+  sessionStore: session.Store;
+  
   private userIdCounter: number;
   private testIdCounter: number;
   private questionIdCounter: number;
@@ -64,6 +69,18 @@ export class MemStorage implements IStorage {
   private analyticsIdCounter: number;
 
   constructor() {
+    // Initialize session store
+    // Import MemoryStore dynamically for ES modules
+    import('memorystore').then(memorystore => {
+      const MemoryStore = memorystore.default(session);
+      this.sessionStore = new MemoryStore({
+        checkPeriod: 86400000 // prune expired entries every 24h
+      });
+    });
+    
+    // Create a temporary sessionStore until the import completes
+    this.sessionStore = new session.MemoryStore();
+    
     this.users = new Map();
     this.tests = new Map();
     this.questions = new Map();

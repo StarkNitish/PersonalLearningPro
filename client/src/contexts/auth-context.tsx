@@ -65,7 +65,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const login = async (username: string, password: string) => {
     try {
       setIsLoading(true);
-      const response = await apiRequest("POST", "/api/auth/login", { username, password });
+      // Using the login endpoint path that matches server implementation
+      const response = await fetch("/api/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ username, password }),
+        credentials: "include"
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Login failed");
+      }
+      
       const userData = await response.json();
       setUser(userData);
       toast({
@@ -88,7 +102,21 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const register = async (userData: RegisterData) => {
     try {
       setIsLoading(true);
-      const response = await apiRequest("POST", "/api/auth/register", userData);
+      // Using the register endpoint path that matches server implementation
+      const response = await fetch("/api/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(userData),
+        credentials: "include"
+      });
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || "Registration failed");
+      }
+      
       const newUser = await response.json();
       setUser(newUser);
       toast({
@@ -111,7 +139,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     try {
       setIsLoading(true);
-      await apiRequest("POST", "/api/auth/logout", {});
+      // Using the logout endpoint path that matches server implementation
+      await fetch("/api/logout", {
+        method: "POST",
+        credentials: "include"
+      });
       setUser(null);
       toast({
         title: "Logged out",
