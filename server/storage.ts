@@ -138,7 +138,14 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.userIdCounter++;
-    const user: User = { ...insertUser, id };
+    const user: User = { 
+      ...insertUser, 
+      id,
+      role: insertUser.role ?? "student", // Apply default if undefined
+      avatar: insertUser.avatar ?? null,
+      class: insertUser.class ?? null,
+      subject: insertUser.subject ?? null,
+    };
     this.users.set(id, user);
     return user;
   }
@@ -159,7 +166,15 @@ export class MemStorage implements IStorage {
   // Test operations
   async createTest(insertTest: InsertTest): Promise<Test> {
     const id = this.testIdCounter++;
-    const test: Test = { ...insertTest, id };
+    const test: Test = { 
+      ...insertTest, 
+      id,
+      createdAt: insertTest.createdAt ?? new Date(),
+      status: insertTest.status ?? "draft",
+      duration: insertTest.duration ?? 60,
+      totalMarks: insertTest.totalMarks ?? 100,
+      description: insertTest.description ?? null,
+    };
     this.tests.set(id, test);
     return test;
   }
@@ -200,7 +215,14 @@ export class MemStorage implements IStorage {
   // Question operations
   async createQuestion(insertQuestion: InsertQuestion): Promise<Question> {
     const id = this.questionIdCounter++;
-    const question: Question = { ...insertQuestion, id };
+    const question: Question = { 
+      ...insertQuestion, 
+      id,
+      marks: insertQuestion.marks ?? 1,
+      options: insertQuestion.options ?? null,
+      correctAnswer: insertQuestion.correctAnswer ?? null,
+      aiRubric: insertQuestion.aiRubric ?? null,
+    };
     this.questions.set(id, question);
     return question;
   }
@@ -227,7 +249,14 @@ export class MemStorage implements IStorage {
   // Test Attempt operations
   async createTestAttempt(insertAttempt: InsertTestAttempt): Promise<TestAttempt> {
     const id = this.attemptIdCounter++;
-    const attempt: TestAttempt = { ...insertAttempt, id };
+    const attempt: TestAttempt = { 
+      ...insertAttempt, 
+      id,
+      status: insertAttempt.status ?? "in_progress",
+      startTime: insertAttempt.startTime ?? new Date(),
+      endTime: insertAttempt.endTime ?? null,
+      score: insertAttempt.score ?? null,
+    };
     this.testAttempts.set(id, attempt);
     return attempt;
   }
