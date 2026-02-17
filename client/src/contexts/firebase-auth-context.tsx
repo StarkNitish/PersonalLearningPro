@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { 
-  auth, 
-  loginWithEmail, 
-  registerWithEmail, 
-  loginWithGoogle, 
-  logoutUser, 
+import {
+  auth,
+  firebaseEnabled,
+  loginWithEmail,
+  registerWithEmail,
+  loginWithGoogle,
+  logoutUser,
   resetPassword,
   getUserProfile,
   completeGoogleSignUp,
@@ -40,6 +41,12 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const { toast } = useToast();
 
   useEffect(() => {
+    // If Firebase is not configured, skip auth and mark as loaded
+    if (!firebaseEnabled || !auth) {
+      setIsLoading(false);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
         try {
@@ -64,7 +71,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const user = await loginWithEmail(email, password);
       const profile = await getUserProfile(user.uid);
       setCurrentUser({ user, profile });
-      
+
       toast({
         title: "Login successful",
         description: `Welcome back, ${profile?.displayName || user.displayName || email}!`,
@@ -83,9 +90,9 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const register = async (
-    email: string, 
-    password: string, 
-    name: string, 
+    email: string,
+    password: string,
+    name: string,
     role: UserRole,
     additionalData?: any
   ) => {
@@ -94,7 +101,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const user = await registerWithEmail(email, password, name, role, additionalData);
       const profile = await getUserProfile(user.uid);
       setCurrentUser({ user, profile });
-      
+
       toast({
         title: "Registration successful",
         description: `Welcome, ${name}!`,
@@ -116,26 +123,26 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       setIsLoading(true);
       const result = await loginWithGoogle();
-      
+
       if (result.isNewUser) {
-        return { 
-          user: result.user, 
-          profile: null, 
-          isNewUser: true 
+        return {
+          user: result.user,
+          profile: null,
+          isNewUser: true
         };
       } else {
-        setCurrentUser({ 
-          user: result.user, 
-          profile: result.profile 
+        setCurrentUser({
+          user: result.user,
+          profile: result.profile
         });
-        
+
         toast({
           title: "Login successful",
           description: `Welcome back, ${result.profile?.displayName}!`,
         });
-        
-        return { 
-          user: result.user, 
+
+        return {
+          user: result.user,
           profile: result.profile,
           isNewUser: false
         };
@@ -161,11 +168,11 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       setIsLoading(true);
       const userData = await completeGoogleSignUp(user, role, additionalData);
-      setCurrentUser({ 
-        user, 
-        profile: userData 
+      setCurrentUser({
+        user,
+        profile: userData
       });
-      
+
       toast({
         title: "Registration successful",
         description: `Welcome, ${userData.displayName}!`,
@@ -188,7 +195,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
       setIsLoading(true);
       await logoutUser();
       setCurrentUser({ user: null, profile: null });
-      
+
       toast({
         title: "Logged out",
         description: "You have been successfully logged out",
@@ -210,7 +217,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
     try {
       setIsLoading(true);
       await resetPassword(email);
-      
+
       toast({
         title: "Password reset email sent",
         description: "Check your email for password reset instructions",

@@ -9,11 +9,14 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
 // Set up session middleware
+if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
+  console.warn("⚠️  SESSION_SECRET is not set. Using an insecure default. Set SESSION_SECRET in your .env file.");
+}
 app.use(session({
-  secret: 'master-plan-ai-secret-key',
+  secret: process.env.SESSION_SECRET || 'dev-only-insecure-secret',
   resave: false,
   saveUninitialized: false,
-  cookie: { 
+  cookie: {
     secure: process.env.NODE_ENV === 'production',
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
   },
@@ -76,7 +79,7 @@ app.use((req, res, next) => {
   const port = 5001;
   server.listen({
     port,
-    host: "localhost",
+    host: "0.0.0.0",
   }, () => {
     log(`serving on port ${port}`);
   });

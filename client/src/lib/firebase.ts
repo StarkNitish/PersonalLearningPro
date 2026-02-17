@@ -1,9 +1,9 @@
 import { initializeApp } from "firebase/app";
-import { 
-  getAuth, 
-  signInWithEmailAndPassword, 
+import {
+  getAuth,
+  signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
-  GoogleAuthProvider, 
+  GoogleAuthProvider,
   signInWithPopup,
   signOut,
   sendPasswordResetEmail,
@@ -24,11 +24,25 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const googleProvider = new GoogleAuthProvider();
+// Graceful fallback: allow running without Firebase credentials
+export const firebaseEnabled =
+  !!firebaseConfig.apiKey && firebaseConfig.apiKey.startsWith("AIza");
+
+if (!firebaseEnabled) {
+  console.warn(
+    "⚠️  Firebase is not configured. Auth features will be disabled.\n" +
+    "   To enable Firebase, copy .env.example to .env and fill in your credentials.\n" +
+    "   See README.md for details."
+  );
+}
+
+// Initialize Firebase only when credentials are present
+const app = firebaseEnabled ? initializeApp(firebaseConfig) : null;
+export const auth = app ? getAuth(app) : null;
+export const db = app ? getFirestore(app) : null;
+export const googleProvider = firebaseEnabled
+  ? new GoogleAuthProvider()
+  : null;
 
 // User role types
 export type UserRole = 'principal' | 'admin' | 'teacher' | 'student' | 'parent';
@@ -50,6 +64,7 @@ export interface UserProfile {
 
 // Authentication functions
 export const loginWithEmail = async (email: string, password: string) => {
+  if (!firebaseEnabled || !auth || !db) throw new Error("Firebase is not configured");
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     await updateDoc(doc(db, "users", userCredential.user.uid), {
@@ -63,20 +78,21 @@ export const loginWithEmail = async (email: string, password: string) => {
 };
 
 export const registerWithEmail = async (
-  email: string, 
-  password: string, 
+  email: string,
+  password: string,
   displayName: string,
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ) => {
+  if (!firebaseEnabled || !auth || !db) throw new Error("Firebase is not configured");
   try {
     // Create user with email and password
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
-    
+
     // Update profile with display name
     await updateProfile(user, { displayName });
-    
+
     // Create user document in Firestore
     const userData: UserProfile = {
       uid: user.uid,
@@ -88,9 +104,9 @@ export const registerWithEmail = async (
       lastLogin: serverTimestamp(),
       ...additionalData
     };
-    
+
     await setDoc(doc(db, "users", user.uid), userData);
-    
+
     return user;
   } catch (error) {
     console.error("Error registering with email:", error);
@@ -99,20 +115,21 @@ export const registerWithEmail = async (
 };
 
 export const loginWithGoogle = async () => {
+  if (!firebaseEnabled || !auth || !db || !googleProvider) throw new Error("Firebase is not configured");
   try {
     const result = await signInWithPopup(auth, googleProvider);
     const user = result.user;
-    
+
     // Check if user exists in Firestore
     const userDoc = await getDoc(doc(db, "users", user.uid));
-    
+
     if (!userDoc.exists()) {
       // First time Google login - redirect to role selection
       // We'll handle this in the UI
-      return { 
-        user, 
+      return {
+        user,
         profile: null,
-        isNewUser: true 
+        isNewUser: true
       };
     } else {
       // Existing user - update last login
@@ -120,8 +137,8 @@ export const loginWithGoogle = async () => {
         lastLogin: serverTimestamp(),
       });
       const userData = userDoc.data() as UserProfile;
-      return { 
-        user, 
+      return {
+        user,
         profile: userData,
         isNewUser: false
       };
@@ -137,6 +154,7 @@ export const completeGoogleSignUp = async (
   role: UserRole,
   additionalData: Partial<UserProfile> = {}
 ) => {
+  if (!firebaseEnabled || !db) throw new Error("Firebase is not configured");
   try {
     const userData: UserProfile = {
       uid: user.uid,
@@ -148,9 +166,9 @@ export const completeGoogleSignUp = async (
       lastLogin: serverTimestamp(),
       ...additionalData
     };
-    
+
     await setDoc(doc(db, "users", user.uid), userData);
-    
+
     return userData;
   } catch (error) {
     console.error("Error completing Google sign up:", error);
@@ -159,6 +177,7 @@ export const completeGoogleSignUp = async (
 };
 
 export const logoutUser = async () => {
+  if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured");
   try {
     await signOut(auth);
   } catch (error) {
@@ -168,6 +187,7 @@ export const logoutUser = async () => {
 };
 
 export const resetPassword = async (email: string) => {
+  if (!firebaseEnabled || !auth) throw new Error("Firebase is not configured");
   try {
     await sendPasswordResetEmail(auth, email);
   } catch (error) {
@@ -177,6 +197,7 @@ export const resetPassword = async (email: string) => {
 };
 
 export const getUserProfile = async (uid: string): Promise<UserProfile | null> => {
+  if (!firebaseEnabled || !db) return null;
   try {
     const userDoc = await getDoc(doc(db, "users", uid));
     if (userDoc.exists()) {
