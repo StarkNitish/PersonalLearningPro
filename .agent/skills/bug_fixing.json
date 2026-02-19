@@ -1,0 +1,18 @@
+{
+  "skill_name": "bug_fixing",
+  "description": "Analyzes reported issues, identifies root causes, and applies code changes to fix bugs.",
+  "inputs": [
+    {"name": "bug_report", "type": "string", "description": "Detailed description of the bug, including steps to reproduce and expected vs. actual behavior."},
+    {"name": "affected_files", "type": "array", "description": "List of potentially affected files based on initial analysis.", "optional": true},
+    {"name": "test_reproduction_script", "type": "string", "description": "Script or steps to reproduce the bug empirically.", "optional": true}
+  ],
+  "outputs": [
+    {"name": "fixed_files", "type": "array", "description": "List of files that were modified to fix the bug."},
+    {"name": "new_test_file", "type": "string", "description": "Path to a new test file that reproduces and validates the fix."}
+  ],
+  "implementation_details": {
+    "type": "diagnostic_and_code_modification",
+    "logic_script": "skills/scripts/diagnose_and_fix_bug.js",
+    "dependencies": ["eslint", "prettier"]
+  }
+}

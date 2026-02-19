@@ -1,0 +1,19 @@
+{
+  "skill_name": "testing",
+  "description": "Generates unit or integration tests for React components or functions using testing libraries like React Testing Library and Jest.",
+  "inputs": [
+    {"name": "target_file", "type": "string", "description": "Path to the component or function file to test."},
+    {"name": "test_type", "type": "string", "description": "Type of test: 'unit', 'integration'."},
+    {"name": "test_framework", "type": "string", "description": "Testing framework to use: 'react_testing_library', 'jest'."},
+    {"name": "test_cases", "type": "array", "description": "List of scenarios or behaviors to test."}
+  ],
+  "outputs": [
+    {"name": "test_file_path", "type": "string", "description": "Path to the generated test file."}
+  ],
+  "implementation_details": {
+    "type": "template_and_logic",
+    "template_path": "skills/templates/react_test.tsx.hbs",
+    "logic_script": "skills/scripts/generate_test.js",
+    "dependencies": ["@testing-library/react", "jest", "ts-jest"]
+  }
+}

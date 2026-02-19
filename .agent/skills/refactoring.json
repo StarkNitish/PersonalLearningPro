@@ -1,0 +1,19 @@
+{
+  "skill_name": "refactoring",
+  "description": "Refactors existing code to improve readability, maintainability, or performance without changing external behavior.",
+  "inputs": [
+    {"name": "target_file", "type": "string", "description": "Path to the file to refactor."},
+    {"name": "refactoring_type", "type": "string", "description": "Type of refactoring: 'extract_component', 'rename_variable', 'simplify_logic', 'extract_hook'."},
+    {"name": "selection_start", "type": "number", "description": "Start line of code selection for refactoring.", "optional": true},
+    {"name": "selection_end", "type": "number", "description": "End line of code selection for refactoring.", "optional": true},
+    {"name": "new_name", "type": "string", "description": "New name for variable/component/hook if applicable.", "optional": true}
+  ],
+  "outputs": [
+    {"name": "modified_files", "type": "array", "description": "List of files that were modified during refactoring."}
+  ],
+  "implementation_details": {
+    "type": "code_transformation",
+    "logic_script": "skills/scripts/apply_refactoring.js",
+    "dependencies": ["prettier", "eslint"]
+  }
+}

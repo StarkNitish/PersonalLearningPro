@@ -1,0 +1,19 @@
+{
+  "skill_name": "react_component_generation",
+  "description": "Generates a new React functional component with specified props and basic structure.",
+  "inputs": [
+    {"name": "component_name", "type": "string", "description": "Name of the React component (e.g., 'LoginPage')."},
+    {"name": "props", "type": "object", "description": "An object describing the component's props, e.g., { 'onSubmit': 'function', 'isLoading': 'boolean' }."},
+    {"name": "elements", "type": "array", "description": "Array of UI elements to include, e.g., ['form', 'input', 'button']"},
+    {"name": "styling_framework", "type": "string", "description": "Styling framework to use ('css' or 'tailwind').", "optional": true}
+  ],
+  "outputs": [
+    {"name": "component_file_path", "type": "string", "description": "Path to the generated component file (.tsx)."}
+  ],
+  "implementation_details": {
+    "type": "template_and_logic",
+    "template_path": "skills/templates/react_component.tsx.hbs",
+    "logic_script": "skills/scripts/generate_react_component.js",
+    "dependencies": ["react", "typescript"]
+  }
+}

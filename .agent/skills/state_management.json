@@ -1,0 +1,19 @@
+{
+  "skill_name": "state_management",
+  "description": "Implements basic state management using React's useState or useContext hooks, or integrates with a state management library.",
+  "inputs": [
+    {"name": "state_name", "type": "string", "description": "Name of the state variable (e.g., 'username', 'isAuthenticated')."},
+    {"name": "initial_value", "type": "any", "description": "Initial value for the state."},
+    {"name": "scope", "type": "string", "description": "Scope of the state: 'local' (useState) or 'global' (useContext/library)."},
+    {"name": "context_name", "type": "string", "description": "Name of the context if scope is 'global' and using useContext.", "optional": true},
+    {"name": "reducer_logic", "type": "string", "description": "Code for reducer function if using useReducer.", "optional": true}
+  ],
+  "outputs": [
+    {"name": "state_declaration_code", "type": "string", "description": "Generated code for state declaration and update function."}
+  ],
+  "implementation_details": {
+    "type": "code_snippet_generation",
+    "logic_script": "skills/scripts/generate_state_management.js",
+    "dependencies": ["react"]
+  }
+}

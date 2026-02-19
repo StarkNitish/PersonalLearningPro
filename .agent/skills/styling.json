@@ -1,0 +1,18 @@
+{
+  "skill_name": "styling",
+  "description": "Applies styling to React components using CSS modules or Tailwind CSS classes.",
+  "inputs": [
+    {"name": "target_file", "type": "string", "description": "Path to the component file to apply styles to."},
+    {"name": "method", "type": "string", "description": "Styling method: 'css_module', 'tailwind_classes', 'inline_styles'."},
+    {"name": "styles", "type": "object", "description": "Object defining styles (CSS rules or Tailwind class strings)."},
+    {"name": "css_file_path", "type": "string", "description": "Path to the CSS module file if 'css_module' method is used.", "optional": true}
+  ],
+  "outputs": [
+    {"name": "modified_files", "type": "array", "description": "List of files that were modified for styling."}
+  ],
+  "implementation_details": {
+    "type": "code_modification",
+    "logic_script": "skills/scripts/apply_styling.js",
+    "dependencies": ["tailwindcss", "postcss"]
+  }
+}
