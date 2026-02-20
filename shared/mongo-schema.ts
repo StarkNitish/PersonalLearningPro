@@ -10,6 +10,69 @@ const AnalyticsSchema = new mongoose.Schema({
   insightDate: { type: Date, default: Date.now },
 });
 
+const UserSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  username: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  name: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  role: { type: String, enum: ["student", "teacher"], default: "student" },
+  avatar: String,
+  class: String,
+  subject: String,
+});
+
+const TestSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  title: { type: String, required: true },
+  description: String,
+  subject: { type: String, required: true },
+  class: { type: String, required: true },
+  teacherId: { type: Number, required: true },
+  totalMarks: { type: Number, default: 100 },
+  duration: { type: Number, default: 60 },
+  testDate: { type: Date, required: true },
+  questionTypes: [String],
+  status: { type: String, enum: ["draft", "published", "completed"], default: "draft" },
+  createdAt: { type: Date, default: Date.now },
+});
+
+const QuestionSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  testId: { type: Number, required: true },
+  type: { type: String, enum: ["mcq", "short", "long", "numerical"], required: true },
+  text: { type: String, required: true },
+  options: mongoose.Schema.Types.Mixed,
+  correctAnswer: String,
+  marks: { type: Number, default: 1 },
+  order: { type: Number, required: true },
+  aiRubric: String,
+});
+
+const TestAttemptSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  testId: { type: Number, required: true },
+  studentId: { type: Number, required: true },
+  startTime: { type: Date, default: Date.now },
+  endTime: Date,
+  score: Number,
+  status: { type: String, enum: ["in_progress", "completed", "evaluated"], default: "in_progress" },
+});
+
+const AnswerSchema = new mongoose.Schema({
+  id: { type: Number, required: true, unique: true },
+  attemptId: { type: Number, required: true },
+  questionId: { type: Number, required: true },
+  text: String,
+  selectedOption: Number,
+  imageUrl: String,
+  ocrText: String,
+  score: Number,
+  aiConfidence: Number,
+  aiFeedback: String,
+  isCorrect: Boolean,
+});
+
 // Auto-increment counter for MongoDB IDs
 const CounterSchema = new mongoose.Schema({
   _id: { type: String, required: true },
@@ -18,14 +81,19 @@ const CounterSchema = new mongoose.Schema({
 const Counter = mongoose.model('Counter', CounterSchema);
 
 async function getNextSequenceValue(sequenceName: string) {
-   const sequenceDocument = await Counter.findOneAndUpdate(
-      { _id: sequenceName },
-      { $inc: { seq: 1 } },
-      { new: true, upsert: true }
-   );
-   return sequenceDocument.seq;
+  const sequenceDocument = await Counter.findOneAndUpdate(
+    { _id: sequenceName },
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  );
+  return sequenceDocument.seq;
 }
 
+export const MongoUser = mongoose.model("User", UserSchema);
+export const MongoTest = mongoose.model("Test", TestSchema);
+export const MongoQuestion = mongoose.model("Question", QuestionSchema);
+export const MongoTestAttempt = mongoose.model("TestAttempt", TestAttemptSchema);
+export const MongoAnswer = mongoose.model("Answer", AnswerSchema);
 export const MongoAnalytics = mongoose.model("Analytics", AnalyticsSchema);
 
 export { getNextSequenceValue };

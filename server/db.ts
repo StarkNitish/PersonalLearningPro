@@ -1,22 +1,8 @@
-import pkg from 'pg';
-const { Pool } = pkg;
 import mongoose from 'mongoose';
-
-// PostgreSQL Connection Pool
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL must be set (PostgreSQL)");
-}
-
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-// Helper for PostgreSQL queries
-export const pgQuery = (text: string, params?: any[]) => pool.query(text, params);
 
 // MongoDB Connection
 if (!process.env.MONGODB_URL) {
-  console.warn("MONGODB_URL not set. MongoDB features will be disabled.");
+  throw new Error("MONGODB_URL environment variable is required.");
 }
 
 export const connectMongoDB = async () => {
@@ -26,5 +12,6 @@ export const connectMongoDB = async () => {
     console.log('MongoDB Connected...');
   } catch (err) {
     console.error('MongoDB connection error:', err);
+    process.exit(1);
   }
 };

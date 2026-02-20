@@ -7,13 +7,11 @@ import {
   type Analytics, type InsertAnalytics
 } from "@shared/schema";
 import {
-  MongoAnalytics, getNextSequenceValue
+  MongoUser, MongoTest, MongoQuestion, MongoTestAttempt, MongoAnswer, MongoAnalytics,
+  getNextSequenceValue
 } from "@shared/mongo-schema";
 import session from "express-session";
-import { pgQuery, pool } from "./db";
-import connectPg from "connect-pg-simple";
-
-const PostgresSessionStore = connectPg(session);
+import MongoStore from "connect-mongo";
 
 export interface IStorage {
   // Session store
@@ -58,207 +56,162 @@ export interface IStorage {
   getAnalyticsByTest(testId: number): Promise<Analytics[]>;
 }
 
-export class HybridStorage implements IStorage {
+export class MongoStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = new PostgresSessionStore({
-      pool: pool,
-      createTableIfMissing: true,
+    this.sessionStore = MongoStore.create({
+      mongoUrl: process.env.MONGODB_URL,
+      collectionName: 'sessions',
+      ttl: 24 * 60 * 60 // 1 day
     });
   }
 
-  // User operations (PostgreSQL - Native SQL)
-  async getUser(id: number): Promise<User | undefined> {
-    const res = await pgQuery('SELECT * FROM users WHERE id = $1', [id]);
-    return res.rows[0];
-  }
-
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const res = await pgQuery('SELECT * FROM users WHERE username = $1', [username]);
-    return res.rows[0];
-  }
-
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const res = await pgQuery('SELECT * FROM users WHERE email = $1', [email]);
-    return res.rows[0];
-  }
-
-  async createUser(user: InsertUser): Promise<User> {
-    const { username, password, name, email, role, avatar, class: className, subject } = user;
-    const res = await pgQuery(
-      `INSERT INTO users (username, password, name, email, role, avatar, class, subject)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [username, password, name, email, role, avatar, className, subject]
-    );
-    return res.rows[0];
-  }
-
-  async getUsers(role?: string): Promise<User[]> {
-    if (role) {
-      const res = await pgQuery('SELECT * FROM users WHERE role = $1', [role]);
-      return res.rows;
-    }
-    const res = await pgQuery('SELECT * FROM users');
-    return res.rows;
-  }
-
-  async getUsersByClass(className: string): Promise<User[]> {
-    const res = await pgQuery(
-      'SELECT * FROM users WHERE role = $1 AND class = $2',
-      ['student', className]
-    );
-    return res.rows;
-  }
-
-  // Test operations (PostgreSQL - Native SQL)
-  async createTest(test: InsertTest): Promise<Test> {
-    const { title, description, subject, class: className, teacherId, totalMarks, duration, testDate, questionTypes, status } = test;
-    const res = await pgQuery(
-      `INSERT INTO tests (title, description, subject, class, teacher_id, total_marks, duration, test_date, question_types, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [title, description, subject, className, teacherId, totalMarks, duration, testDate, JSON.stringify(questionTypes), status]
-    );
-    return res.rows[0];
-  }
-
-  async getTest(id: number): Promise<Test | undefined> {
-    const res = await pgQuery('SELECT * FROM tests WHERE id = $1', [id]);
-    return res.rows[0];
-  }
-
-  async getTests(teacherId?: number, status?: string): Promise<Test[]> {
-    let query = 'SELECT * FROM tests WHERE 1=1';
-    const params = [];
-    if (teacherId) {
-      params.push(teacherId);
-      query += ` AND teacher_id = $${params.length}`;
-    }
-    if (status) {
-      params.push(status);
-      query += ` AND status = $${params.length}`;
-    }
-    const res = await pgQuery(query, params);
-    return res.rows;
-  }
-
-  async getTestsByClass(className: string): Promise<Test[]> {
-    const res = await pgQuery('SELECT * FROM tests WHERE class = $1', [className]);
-    return res.rows;
-  }
-
-  async updateTest(id: number, testUpdate: Partial<InsertTest>): Promise<Test | undefined> {
-    const keys = Object.keys(testUpdate);
-    const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
-    const params = [id, ...Object.values(testUpdate)];
-    const res = await pgQuery(`UPDATE tests SET ${setClause} WHERE id = $1 RETURNING *`, params);
-    return res.rows[0];
-  }
-
-  // Question operations (PostgreSQL - Native SQL)
-  async createQuestion(question: InsertQuestion): Promise<Question> {
-    const { testId, type, text, options, correctAnswer, marks, order, aiRubric } = question;
-    const res = await pgQuery(
-      `INSERT INTO questions (test_id, type, text, options, correct_answer, marks, "order", ai_rubric)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *`,
-      [testId, type, text, JSON.stringify(options), correctAnswer, marks, order, aiRubric]
-    );
-    return res.rows[0];
-  }
-
-  async getQuestion(id: number): Promise<Question | undefined> {
-    const res = await pgQuery('SELECT * FROM questions WHERE id = $1', [id]);
-    return res.rows[0];
-  }
-
-  async getQuestionsByTest(testId: number): Promise<Question[]> {
-    const res = await pgQuery('SELECT * FROM questions WHERE test_id = $1 ORDER BY "order" ASC', [testId]);
-    return res.rows;
-  }
-
-  async updateQuestion(id: number, questionUpdate: Partial<InsertQuestion>): Promise<Question | undefined> {
-    const keys = Object.keys(questionUpdate);
-    const setClause = keys.map((key, i) => `"${key}" = $${i + 2}`).join(', ');
-    const params = [id, ...Object.values(questionUpdate)];
-    const res = await pgQuery(`UPDATE questions SET ${setClause} WHERE id = $1 RETURNING *`, params);
-    return res.rows[0];
-  }
-
-  // Test Attempt operations (PostgreSQL)
-  async createTestAttempt(attempt: InsertTestAttempt): Promise<TestAttempt> {
-    const { testId, studentId, startTime, status } = attempt;
-    const res = await pgQuery(
-      `INSERT INTO test_attempts (test_id, student_id, start_time, status)
-       VALUES ($1, $2, $3, $4)
-       RETURNING *`,
-      [testId, studentId, startTime || new Date(), status]
-    );
-    return res.rows[0];
-  }
-
-  async getTestAttempt(id: number): Promise<TestAttempt | undefined> {
-    const res = await pgQuery('SELECT * FROM test_attempts WHERE id = $1', [id]);
-    return res.rows[0];
-  }
-
-  async getTestAttemptsByStudent(studentId: number): Promise<TestAttempt[]> {
-    const res = await pgQuery('SELECT * FROM test_attempts WHERE student_id = $1', [studentId]);
-    return res.rows;
-  }
-
-  async getTestAttemptsByTest(testId: number): Promise<TestAttempt[]> {
-    const res = await pgQuery('SELECT * FROM test_attempts WHERE test_id = $1', [testId]);
-    return res.rows;
-  }
-
-  async updateTestAttempt(id: number, attemptUpdate: Partial<InsertTestAttempt>): Promise<TestAttempt | undefined> {
-    const keys = Object.keys(attemptUpdate);
-    const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
-    const params = [id, ...Object.values(attemptUpdate)];
-    const res = await pgQuery(`UPDATE test_attempts SET ${setClause} WHERE id = $1 RETURNING *`, params);
-    return res.rows[0];
-  }
-
-  // Answer operations (PostgreSQL)
-  async createAnswer(answer: InsertAnswer): Promise<Answer> {
-    const { attemptId, questionId, text, selectedOption, imageUrl, ocrText, score, aiConfidence, aiFeedback, isCorrect } = answer;
-    const res = await pgQuery(
-      `INSERT INTO answers (attempt_id, question_id, text, selected_option, image_url, ocr_text, score, ai_confidence, ai_feedback, is_correct)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING *`,
-      [attemptId, questionId, text, selectedOption, imageUrl, ocrText, score, aiConfidence, aiFeedback, isCorrect]
-    );
-    return res.rows[0];
-  }
-
-  async getAnswer(id: number): Promise<Answer | undefined> {
-    const res = await pgQuery('SELECT * FROM answers WHERE id = $1', [id]);
-    return res.rows[0];
-  }
-
-  async getAnswersByAttempt(attemptId: number): Promise<Answer[]> {
-    const res = await pgQuery('SELECT * FROM answers WHERE attempt_id = $1', [attemptId]);
-    return res.rows;
-  }
-
-  async updateAnswer(id: number, answerUpdate: Partial<InsertAnswer>): Promise<Answer | undefined> {
-    const keys = Object.keys(answerUpdate);
-    const setClause = keys.map((key, i) => `${key} = $${i + 2}`).join(', ');
-    const params = [id, ...Object.values(answerUpdate)];
-    const res = await pgQuery(`UPDATE answers SET ${setClause} WHERE id = $1 RETURNING *`, params);
-    return res.rows[0];
-  }
-
-  // Analytics operations (MongoDB - Mongoose)
   private mapMongoDoc<T>(doc: any): T {
     if (!doc) return undefined as any;
     const { _id, __v, ...rest } = doc.toObject ? doc.toObject() : doc;
     return { ...rest } as T;
   }
 
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    const user = await MongoUser.findOne({ id });
+    return this.mapMongoDoc<User>(user);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const user = await MongoUser.findOne({ username });
+    return this.mapMongoDoc<User>(user);
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const user = await MongoUser.findOne({ email });
+    return this.mapMongoDoc<User>(user);
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = await getNextSequenceValue("user_id");
+    const newUser = new MongoUser({ ...user, id });
+    await newUser.save();
+    return this.mapMongoDoc<User>(newUser);
+  }
+
+  async getUsers(role?: string): Promise<User[]> {
+    const filter = role ? { role } : {};
+    const users = await MongoUser.find(filter);
+    return users.map((u: any) => this.mapMongoDoc<User>(u));
+  }
+
+  async getUsersByClass(className: string): Promise<User[]> {
+    const users = await MongoUser.find({ role: 'student', class: className });
+    return users.map((u: any) => this.mapMongoDoc<User>(u));
+  }
+
+  // Test operations
+  async createTest(test: InsertTest): Promise<Test> {
+    const id = await getNextSequenceValue("test_id");
+    const newTest = new MongoTest({ ...test, id });
+    await newTest.save();
+    return this.mapMongoDoc<Test>(newTest);
+  }
+
+  async getTest(id: number): Promise<Test | undefined> {
+    const test = await MongoTest.findOne({ id });
+    return test ? this.mapMongoDoc<Test>(test) : undefined;
+  }
+
+  async getTests(teacherId?: number, status?: string): Promise<Test[]> {
+    const filter: any = {};
+    if (teacherId) filter.teacherId = teacherId;
+    if (status) filter.status = status;
+    const tests = await MongoTest.find(filter);
+    return tests.map((t: any) => this.mapMongoDoc<Test>(t));
+  }
+
+  async getTestsByClass(className: string): Promise<Test[]> {
+    const tests = await MongoTest.find({ class: className });
+    return tests.map((t: any) => this.mapMongoDoc<Test>(t));
+  }
+
+  async updateTest(id: number, testUpdate: Partial<InsertTest>): Promise<Test | undefined> {
+    const test = await MongoTest.findOneAndUpdate({ id }, testUpdate, { new: true });
+    return test ? this.mapMongoDoc<Test>(test) : undefined;
+  }
+
+  // Question operations
+  async createQuestion(question: InsertQuestion): Promise<Question> {
+    const id = await getNextSequenceValue("question_id");
+    const newQuestion = new MongoQuestion({ ...question, id });
+    await newQuestion.save();
+    return this.mapMongoDoc<Question>(newQuestion);
+  }
+
+  async getQuestion(id: number): Promise<Question | undefined> {
+    const question = await MongoQuestion.findOne({ id });
+    return question ? this.mapMongoDoc<Question>(question) : undefined;
+  }
+
+  async getQuestionsByTest(testId: number): Promise<Question[]> {
+    const questions = await MongoQuestion.find({ testId }).sort({ order: 1 });
+    return questions.map((q: any) => this.mapMongoDoc<Question>(q));
+  }
+  async updateQuestion(id: number, questionUpdate: Partial<InsertQuestion>): Promise<Question | undefined> {
+    const question = await MongoQuestion.findOneAndUpdate({ id }, questionUpdate, { new: true });
+    return question ? this.mapMongoDoc<Question>(question) : undefined;
+  }
+
+  // Test Attempt operations
+  async createTestAttempt(attempt: InsertTestAttempt): Promise<TestAttempt> {
+    const id = await getNextSequenceValue("attempt_id");
+    const newAttempt = new MongoTestAttempt({ ...attempt, id });
+    await newAttempt.save();
+    return this.mapMongoDoc<TestAttempt>(newAttempt);
+  }
+
+  async getTestAttempt(id: number): Promise<TestAttempt | undefined> {
+    const attempt = await MongoTestAttempt.findOne({ id });
+    return attempt ? this.mapMongoDoc<TestAttempt>(attempt) : undefined;
+  }
+
+  async getTestAttemptsByStudent(studentId: number): Promise<TestAttempt[]> {
+    const attempts = await MongoTestAttempt.find({ studentId });
+    return attempts.map((a: any) => this.mapMongoDoc<TestAttempt>(a));
+  }
+
+  async getTestAttemptsByTest(testId: number): Promise<TestAttempt[]> {
+    const attempts = await MongoTestAttempt.find({ testId });
+    return attempts.map((a: any) => this.mapMongoDoc<TestAttempt>(a));
+  }
+
+  async updateTestAttempt(id: number, attemptUpdate: Partial<InsertTestAttempt>): Promise<TestAttempt | undefined> {
+    const attempt = await MongoTestAttempt.findOneAndUpdate({ id }, attemptUpdate, { new: true });
+    return attempt ? this.mapMongoDoc<TestAttempt>(attempt) : undefined;
+  }
+
+  // Answer operations
+  async createAnswer(answer: InsertAnswer): Promise<Answer> {
+    const id = await getNextSequenceValue("answer_id");
+    const newAnswer = new MongoAnswer({ ...answer, id });
+    await newAnswer.save();
+    return this.mapMongoDoc<Answer>(newAnswer);
+  }
+
+  async getAnswer(id: number): Promise<Answer | undefined> {
+    const answer = await MongoAnswer.findOne({ id });
+    return answer ? this.mapMongoDoc<Answer>(answer) : undefined;
+  }
+
+  async getAnswersByAttempt(attemptId: number): Promise<Answer[]> {
+    const answers = await MongoAnswer.find({ attemptId });
+    return answers.map((a: any) => this.mapMongoDoc<Answer>(a));
+  }
+
+  async updateAnswer(id: number, answerUpdate: Partial<InsertAnswer>): Promise<Answer | undefined> {
+    const answer = await MongoAnswer.findOneAndUpdate({ id }, answerUpdate, { new: true });
+    return answer ? this.mapMongoDoc<Answer>(answer) : undefined;
+  }
+
+  // Analytics operations
   async createAnalytics(insertAnalytics: InsertAnalytics): Promise<Analytics> {
     const id = await getNextSequenceValue("analytics_id");
     const analyticsResult = new MongoAnalytics({ ...insertAnalytics, id });
@@ -268,13 +221,13 @@ export class HybridStorage implements IStorage {
 
   async getAnalyticsByUser(userId: number): Promise<Analytics[]> {
     const results = await MongoAnalytics.find({ userId });
-    return results.map(r => this.mapMongoDoc<Analytics>(r));
+    return results.map((r: any) => this.mapMongoDoc<Analytics>(r));
   }
 
   async getAnalyticsByTest(testId: number): Promise<Analytics[]> {
     const results = await MongoAnalytics.find({ testId });
-    return results.map(r => this.mapMongoDoc<Analytics>(r));
+    return results.map((r: any) => this.mapMongoDoc<Analytics>(r));
   }
 }
 
-export const storage = new HybridStorage();
+export const storage = new MongoStorage();
