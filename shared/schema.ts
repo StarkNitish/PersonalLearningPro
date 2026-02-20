@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Zod schemas for validation (previously drizzle-zod)
+// Zod schemas for validation
 export const insertUserSchema = z.object({
   username: z.string().min(1),
   password: z.string().min(1),
