@@ -179,7 +179,7 @@ export default function StudentDashboard() {
                 <Card key={i}>
                   <CardContent className="p-4 flex items-center justify-between">
                     <div className="flex items-center gap-4">
-                      <div className={`p-2 rounded-lg ${result.score >= 90 ? 'bg-emerald-500/10 text-emerald-600' : result.score >= 70 ? 'bg-blue-500/10 text-blue-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                      <div className={`p-2 rounded-lg ${result.score >= 90 ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : result.score >= 70 ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400' : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'}`}>
                         <CheckCircle2 className="h-5 w-5" />
                       </div>
                       <div>
@@ -189,7 +189,7 @@ export default function StudentDashboard() {
                     </div>
                     <div className="text-right">
                       <div className="text-lg font-bold">{result.score}/{result.total}</div>
-                      <div className={`text-xs font-medium ${result.score >= 90 ? 'text-emerald-600' : result.score >= 70 ? 'text-blue-600' : 'text-amber-600'}`}>
+                      <div className={`text-xs font-medium ${result.score >= 90 ? 'text-emerald-600 dark:text-emerald-400' : result.score >= 70 ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}>
                         {result.score >= 90 ? 'Excellent' : result.score >= 70 ? 'Good' : 'Needs work'}
                       </div>
                     </div>
@@ -337,31 +337,33 @@ export default function StudentDashboard() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="overflow-x-auto -mx-2">
-              <table className="w-full text-sm min-w-[600px]">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2.5 px-2 text-muted-foreground font-medium text-xs uppercase tracking-wider sticky left-0 bg-card">Time</th>
-                    {["Mon", "Tue", "Wed", "Thu", "Fri"].map((day) => (
-                      <th key={day} className="text-center py-2.5 px-2 text-muted-foreground font-medium text-xs uppercase tracking-wider">{day}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {timetable.map((row, i) => (
-                    <tr key={i} className="border-b last:border-0">
-                      <td className="py-2 px-2 font-medium text-xs text-muted-foreground sticky left-0 bg-card">{row.time}</td>
-                      {[row.mon, row.tue, row.wed, row.thu, row.fri].map((subject, j) => (
-                        <td key={j} className="text-center py-1.5 px-1">
-                          <span className={`inline-block px-2.5 py-1 rounded-md text-xs font-medium ${getSubjectColor(subject)}`}>
-                            {subject}
-                          </span>
-                        </td>
+            <div className="relative overflow-hidden rounded-md border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[700px]">
+                  <thead className="sticky top-0 z-10 bg-muted/50 backdrop-blur-md">
+                    <tr className="border-b border-border/50">
+                      <th className="text-left py-3 px-4 text-muted-foreground font-semibold text-xs uppercase tracking-wider sticky left-0 z-20 bg-muted/80 backdrop-blur-md border-r border-border/50">Time</th>
+                      {["Mon", "Tue", "Wed", "Thu", "Fri"].map((day) => (
+                        <th key={day} className="text-center py-3 px-4 text-muted-foreground font-semibold text-xs uppercase tracking-wider">{day}</th>
                       ))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {timetable.map((row, i) => (
+                      <tr key={i} className="border-b border-border/50 last:border-0 hover:bg-muted/30 transition-colors">
+                        <td className="py-3 px-4 font-bold text-xs text-primary sticky left-0 z-20 bg-muted/80 backdrop-blur-sm border-r border-border/50">{row.time}</td>
+                        {[row.mon, row.tue, row.wed, row.thu, row.fri].map((subject, j) => (
+                          <td key={j} className="text-center py-2 px-2">
+                            <span className={`inline-block px-3 py-1.5 rounded-lg text-xs font-semibold shadow-sm transition-transform hover:scale-105 cursor-default ${getSubjectColor(subject)}`}>
+                              {subject}
+                            </span>
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </CardContent>
         </Card>
