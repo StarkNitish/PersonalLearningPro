@@ -147,6 +147,46 @@ export const insertAnalyticsSchema = createInsertSchema(analytics).pick({
   insightDate: true,
 });
 
+// Channels
+export const channels = pgTable("channels", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  type: text("type").notNull().default("text"), // text, announcement, dm
+  class: text("class"), // e.g., Grade 11-A
+  subject: text("subject"), // For organization/folders
+  members: json("members"), // Array of user IDs for DM channels
+});
+
+export const insertChannelSchema = createInsertSchema(channels).pick({
+  name: true,
+  type: true,
+  class: true,
+  subject: true,
+  members: true,
+});
+
+// Messages
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  channelId: integer("channel_id").notNull(),
+  senderId: text("sender_id").notNull(), // Firebase UIDs
+  senderName: text("sender_name"),
+  senderRole: text("sender_role"),
+  avatar: text("avatar"),
+  content: text("content").notNull(),
+  timestamp: timestamp("timestamp").notNull().defaultNow(),
+});
+
+export const insertMessageSchema = createInsertSchema(messages).pick({
+  channelId: true,
+  senderId: true,
+  senderName: true,
+  senderRole: true,
+  avatar: true,
+  content: true,
+  timestamp: true,
+});
+
 // Export the types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -165,3 +205,9 @@ export type InsertAnswer = z.infer<typeof insertAnswerSchema>;
 
 export type Analytics = typeof analytics.$inferSelect;
 export type InsertAnalytics = z.infer<typeof insertAnalyticsSchema>;
+
+export type Channel = typeof channels.$inferSelect;
+export type InsertChannel = z.infer<typeof insertChannelSchema>;
+
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
