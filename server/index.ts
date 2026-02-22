@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
 import { connectMongoDB } from "./db";
+import { initCassandra } from "./lib/cassandra";
 
 const app = express();
 app.use(express.json());
@@ -12,6 +13,7 @@ app.use(express.urlencoded({ extended: false }));
 
 // Initialize Databases
 connectMongoDB();
+initCassandra();
 
 // Set up session middleware
 if (!process.env.SESSION_SECRET && process.env.NODE_ENV === 'production') {
