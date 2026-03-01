@@ -16,6 +16,8 @@ import StudentDirectory from "@/pages/student-directory";
 import MessagesPage from "@/pages/messages";
 import MessagePage from "@/pages/messagepal-demo";
 import ComingSoon from "@/pages/coming-soon";
+import TestPage from "@/pages/test-page";
+import ResourcesPage from "@/pages/resources-page";
 import { ThemeProvider } from "./contexts/theme-context";
 import "./blackboard-login.css";
 import { Loader2 } from "lucide-react";
@@ -83,6 +85,8 @@ const WrappedMessages = withLayout(MessagesPage, { fullWidth: true });
 const WrappedMessage = withLayout(MessagePage, { fullWidth: true });
 // ComingSoon gets fullWidth so it fills the page without extra padding constraints
 const WrappedComingSoon = withLayout(ComingSoon, { fullWidth: true });
+const WrappedTestPage = withLayout(TestPage, { fullWidth: true });
+const WrappedResourcesPage = withLayout(ResourcesPage, { fullWidth: true });
 
 /**
  * Render application routes and handle authentication and loading states.
@@ -193,6 +197,8 @@ function Router() {
       <Route path="/student-directory" component={withProtection(WrappedStudentDirectory, ["teacher", "principal", "admin"])} />
       <Route path="/messages" component={withProtection(WrappedMessages)} />
       <Route path="/messagepal" component={withProtection(WrappedMessage)} />
+      <Route path="/test/:id" component={withProtection(WrappedTestPage, ["student", "teacher", "admin"])} />
+      <Route path="/resources" component={withProtection(WrappedResourcesPage, ["student"])} />
 
       {/* Coming Soon — unimplemented sidebar links */}
       <Route path="/institution" component={WrappedComingSoon} />
@@ -203,7 +209,6 @@ function Router() {
       <Route path="/live-classes" component={WrappedComingSoon} />
       <Route path="/tests" component={WrappedComingSoon} />
       <Route path="/progress" component={WrappedComingSoon} />
-      <Route path="/resources" component={WrappedComingSoon} />
       <Route path="/study-groups" component={WrappedComingSoon} />
       <Route path="/achievements" component={WrappedComingSoon} />
       <Route path="/settings" component={WrappedComingSoon} />

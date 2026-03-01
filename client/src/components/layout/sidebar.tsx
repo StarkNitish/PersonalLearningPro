@@ -124,7 +124,7 @@ export function Sidebar({ className }: SidebarProps) {
   // Student navigation items
   const studentNavItems: NavItem[] = [
     { title: "Dashboard", href: "/student-dashboard", icon: <LayoutDashboard className="h-5 w-5" /> },
-    { title: "Tests", href: "/tests", icon: <FileQuestion className="h-5 w-5" />, isSoon: true },
+    { title: "Test MVP", href: "/test/1", icon: <FileQuestion className="h-5 w-5" /> },
     { title: "My Progress", href: "/progress", icon: <BarChart className="h-5 w-5" />, isSoon: true },
     { title: "Resources", href: "/resources", icon: <BookOpen className="h-5 w-5" />, isSoon: true },
     { title: "AI Tutor", href: "/ai-tutor", icon: <Brain className="h-5 w-5" /> },
