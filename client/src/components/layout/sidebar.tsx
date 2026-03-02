@@ -141,10 +141,11 @@ export function Sidebar({ className }: SidebarProps) {
     { title: "Resources", href: "/resources", icon: <BookOpen className="h-5 w-5" />, isSoon: true },
     { title: "AI Tutor", href: "/ai-tutor", icon: <Brain className="h-5 w-5" /> },
     { title: "Live Classes", href: "/live-classes", icon: <Video className="h-5 w-5" />, isSoon: true },
-    { title: "Study Groups", href: "/study-groups", icon: <Users className="h-5 w-5" />, isSoon: true },
+    { title: "Study Arena", href: "/study-arena", icon: <Users className="h-5 w-5" /> },
     { title: "Achievements", href: "/achievements", icon: <Trophy className="h-5 w-5" />, isSoon: true },
     { title: "Messages", href: "/messages", icon: <MessageSquare className="h-5 w-5" /> },
     { title: "Settings", href: "/settings", icon: <Settings className="h-5 w-5" />, isSoon: true },
+    { title: "Tasks", href: "/tasks", icon: <FileQuestion className="h-5 w-5" /> },
   ];
 
   // Parent navigation items

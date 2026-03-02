@@ -20,6 +20,8 @@ import ComingSoon from "@/pages/coming-soon";
 import TestPage from "@/pages/test-page";
 import ResourcesPage from "@/pages/resources-page";
 import MyProgress from "@/pages/my-progress";
+import StudyArenaPage from "@/pages/study-arena";
+import TasksPage from "@/pages/tasks";
 import { ThemeProvider } from "./contexts/theme-context";
 import "./blackboard-login.css";
 import { Loader2 } from "lucide-react";
@@ -91,6 +93,8 @@ const WrappedComingSoon = withLayout(ComingSoon, { fullWidth: true });
 const WrappedTestPage = withLayout(TestPage, { fullWidth: true });
 const WrappedResourcesPage = withLayout(ResourcesPage, { fullWidth: true });
 const WrappedMyProgress = withLayout(MyProgress, { fullWidth: true });
+const WrappedStudyArena = withLayout(StudyArenaPage, { fullWidth: true });
+const WrappedTasks = withLayout(TasksPage, { fullWidth: true });
 
 /**
  * Render application routes and handle authentication and loading states.
@@ -205,6 +209,8 @@ function Router() {
       <Route path="/messagepal" component={withProtection(WrappedMessage)} />
       <Route path="/test/:id" component={withProtection(WrappedTestPage, ["student", "teacher", "admin"])} />
       <Route path="/resources" component={withProtection(WrappedResourcesPage, ["student"])} />
+      <Route path="/study-arena" component={withProtection(WrappedStudyArena, ["student"])} />
+      <Route path="/tasks" component={withProtection(WrappedTasks)} />
 
       {/* Coming Soon — unimplemented sidebar links */}
       <Route path="/institution" component={WrappedComingSoon} />
