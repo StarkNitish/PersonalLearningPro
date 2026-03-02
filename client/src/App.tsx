@@ -7,6 +7,7 @@ import Dashboard from "@/pages/dashboard";
 import StudentDashboard from "@/pages/student-dashboard";
 import PrincipalDashboard from "@/pages/principal-dashboard";
 import AdminDashboard from "@/pages/admin-dashboard";
+import SchoolAdminDashboard from "@/pages/school-admin-dashboard";
 import ParentDashboard from "@/pages/parent-dashboard";
 import CreateTest from "@/pages/create-test";
 import OcrScan from "@/pages/ocr-scan";
@@ -16,6 +17,11 @@ import StudentDirectory from "@/pages/student-directory";
 import MessagesPage from "@/pages/messages";
 import MessagePage from "@/pages/messagepal-demo";
 import ComingSoon from "@/pages/coming-soon";
+import TestPage from "@/pages/test-page";
+import ResourcesPage from "@/pages/resources-page";
+import MyProgress from "@/pages/my-progress";
+import StudyArenaPage from "@/pages/study-arena";
+import TasksPage from "@/pages/tasks";
 import { ThemeProvider } from "./contexts/theme-context";
 import "./blackboard-login.css";
 import { Loader2 } from "lucide-react";
@@ -72,6 +78,7 @@ const withLayout = (Component: React.ComponentType, options?: { fullWidth?: bool
 const WrappedDashboard = withLayout(Dashboard);
 const WrappedStudentDashboard = withLayout(StudentDashboard);
 const WrappedPrincipalDashboard = withLayout(PrincipalDashboard);
+const WrappedSchoolAdminDashboard = withLayout(SchoolAdminDashboard);
 const WrappedAdminDashboard = withLayout(AdminDashboard);
 const WrappedParentDashboard = withLayout(ParentDashboard);
 const WrappedCreateTest = withLayout(CreateTest);
@@ -83,6 +90,11 @@ const WrappedMessages = withLayout(MessagesPage, { fullWidth: true });
 const WrappedMessage = withLayout(MessagePage, { fullWidth: true });
 // ComingSoon gets fullWidth so it fills the page without extra padding constraints
 const WrappedComingSoon = withLayout(ComingSoon, { fullWidth: true });
+const WrappedTestPage = withLayout(TestPage, { fullWidth: true });
+const WrappedResourcesPage = withLayout(ResourcesPage, { fullWidth: true });
+const WrappedMyProgress = withLayout(MyProgress, { fullWidth: true });
+const WrappedStudyArena = withLayout(StudyArenaPage, { fullWidth: true });
+const WrappedTasks = withLayout(TasksPage, { fullWidth: true });
 
 /**
  * Render application routes and handle authentication and loading states.
@@ -165,6 +177,7 @@ function Router() {
     const role = effectiveRole;
     switch (role) {
       case "principal": return WrappedPrincipalDashboard;
+      case "school_admin": return WrappedSchoolAdminDashboard;
       case "admin": return WrappedAdminDashboard;
       case "teacher": return WrappedDashboard;
       case "student": return WrappedStudentDashboard;
@@ -181,6 +194,7 @@ function Router() {
       {/* Role-specific dashboards */}
       <Route path="/dashboard" component={withProtection(WrappedDashboard, ["teacher"])} />
       <Route path="/principal-dashboard" component={withProtection(WrappedPrincipalDashboard, ["principal"])} />
+      <Route path="/school-admin-dashboard" component={withProtection(WrappedSchoolAdminDashboard, ["school_admin"])} />
       <Route path="/admin-dashboard" component={withProtection(WrappedAdminDashboard, ["admin"])} />
       <Route path="/student-dashboard" component={withProtection(WrappedStudentDashboard, ["student"])} />
       <Route path="/parent-dashboard" component={withProtection(WrappedParentDashboard, ["parent"])} />
@@ -193,6 +207,10 @@ function Router() {
       <Route path="/student-directory" component={withProtection(WrappedStudentDirectory, ["teacher", "principal", "admin"])} />
       <Route path="/messages" component={withProtection(WrappedMessages)} />
       <Route path="/messagepal" component={withProtection(WrappedMessage)} />
+      <Route path="/test/:id" component={withProtection(WrappedTestPage, ["student", "teacher", "admin"])} />
+      <Route path="/resources" component={withProtection(WrappedResourcesPage, ["student"])} />
+      <Route path="/study-arena" component={withProtection(WrappedStudyArena, ["student"])} />
+      <Route path="/tasks" component={withProtection(WrappedTasks)} />
 
       {/* Coming Soon — unimplemented sidebar links */}
       <Route path="/institution" component={WrappedComingSoon} />
@@ -202,8 +220,7 @@ function Router() {
       <Route path="/infrastructure" component={WrappedComingSoon} />
       <Route path="/live-classes" component={WrappedComingSoon} />
       <Route path="/tests" component={WrappedComingSoon} />
-      <Route path="/progress" component={WrappedComingSoon} />
-      <Route path="/resources" component={WrappedComingSoon} />
+      <Route path="/progress" component={withProtection(WrappedMyProgress, ["student", "parent"])} />
       <Route path="/study-groups" component={WrappedComingSoon} />
       <Route path="/achievements" component={WrappedComingSoon} />
       <Route path="/settings" component={WrappedComingSoon} />

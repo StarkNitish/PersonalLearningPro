@@ -16,7 +16,7 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   name: { type: String, required: true },
   email: { type: String, required: true, unique: true },
-  role: { type: String, enum: ["student", "teacher", "parent", "principal", "admin"], default: "student" },
+  role: { type: String, enum: ["student", "teacher", "parent", "principal", "school_admin", "admin"], default: "student" },
   status: { type: String, enum: ["active", "pending", "suspended"], default: "active" },
   school_code: { type: String, default: null },
   avatar: String,
@@ -180,7 +180,7 @@ const MessageSchema = new mongoose.Schema({
   readBy: [{ type: Number }],
   createdAt: { type: Date, default: Date.now },
   // Phase 3: Messaging feature extensions
-  senderRole: { type: String, enum: ['student', 'teacher', 'parent', 'principal', 'admin'], default: 'student' },
+  senderRole: { type: String, enum: ['student', 'teacher', 'parent', 'principal', 'school_admin', 'admin'], default: 'student' },
   messageType: { type: String, enum: ['text', 'doubt', 'assignment', 'announcement', 'system'], default: 'text' },
   replyTo: { type: Number, default: null },          // message id being replied to
   mentions: [{ type: String }],                      // firebase UIDs mentioned

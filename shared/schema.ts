@@ -6,7 +6,7 @@ export const insertUserSchema = z.object({
   password: z.string().min(1),
   name: z.string().min(1),
   email: z.string().email(),
-  role: z.enum(["student", "teacher", "parent", "principal", "admin"]).default("student"),
+  role: z.enum(["student", "teacher", "parent", "principal", "school_admin", "admin"]).default("student"),
   status: z.enum(["active", "pending", "suspended"]).default("active"),
   avatar: z.string().optional().nullable(),
   class: z.string().optional().nullable(),
