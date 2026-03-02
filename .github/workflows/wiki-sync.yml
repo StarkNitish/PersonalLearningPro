@@ -18,7 +18,6 @@ jobs:
         uses: Andrew-Chen-Wang/github-wiki-action@v5
         with:
           path: docs
-          repository: ${{ github.repository }}
           commit-message: "docs: automatic sync from main repository"
         env:
           # For this to work, GitHub Actions must have read/write access to the repository.
