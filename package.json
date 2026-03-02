@@ -7,7 +7,8 @@
     "dev": "tsx server/index.ts",
     "build": "vite build && esbuild server/index.ts --platform=node --packages=external --bundle --format=esm --outdir=dist",
     "start": "NODE_ENV=production node dist/index.js",
-    "check": "tsc"
+    "check": "tsc",
+    "test": "vitest run"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.1",
@@ -41,8 +42,10 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@replit/vite-plugin-shadcn-theme-json": "^0.0.4",
     "@tanstack/react-query": "^5.60.5",
+    "@types/canvas-confetti": "^1.9.0",
     "@types/multer": "^2.0.0",
     "bcryptjs": "^3.0.3",
+    "canvas-confetti": "^1.9.4",
     "cassandra-driver": "^4.8.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
