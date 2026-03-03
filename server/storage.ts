@@ -1,16 +1,21 @@
 import {
   type User, type InsertUser,
+  type Session, type InsertSession,
+  type Otp, type InsertOtp,
   type Test, type InsertTest,
   type Question, type InsertQuestion,
   type TestAttempt, type InsertTestAttempt,
   type Answer, type InsertAnswer,
   type Analytics, type InsertAnalytics,
+  type TestAssignment, type InsertTestAssignment,
   type Workspace, type InsertWorkspace,
   type Channel, type InsertChannel,
   type Message, type InsertMessage,
 } from "@shared/schema";
 import {
-  MongoUser, MongoTest, MongoQuestion, MongoTestAttempt, MongoAnswer, MongoAnalytics,
+  MongoUser, MongoSession, MongoOtp,
+  MongoTest, MongoQuestion, MongoTestAttempt, MongoAnswer, MongoAnalytics,
+  MongoTestAssignment,
   MongoWorkspace, MongoChannel, MongoMessage,
   getNextSequenceValue
 } from "@shared/mongo-schema";
@@ -26,7 +31,7 @@ import {
 } from "./lib/cassandra-message-store";
 import { Snowflake } from "./lib/snowflake";
 import session from "express-session";
-import MongoStore from "connect-mongo";
+import MemoryStore from "memorystore";
 
 export interface IStorage {
   // Session store
@@ -38,6 +43,20 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   getUsers(role?: string): Promise<User[]>;
   getUsersByClass(className: string): Promise<User[]>;
+  updateUser(id: number, user: Partial<InsertUser>): Promise<User | undefined>;
+
+  // Session operations
+  createSession(session: InsertSession): Promise<Session>;
+  getSession(id: number): Promise<Session | undefined>;
+  getSessionByRefreshToken(tokenHash: string): Promise<Session | undefined>;
+  deleteSession(id: number): Promise<boolean>;
+  deleteAllUserSessions(userId: number): Promise<boolean>;
+
+  // OTP operations
+  createOtp(otp: InsertOtp): Promise<Otp>;
+  getOtp(id: number): Promise<Otp | undefined>;
+  getValidOtp(userId: number, type: string): Promise<Otp | undefined>;
+  markOtpUsed(id: number): Promise<boolean>;
 
   // Test operations
   createTest(test: InsertTest): Promise<Test>;
@@ -70,6 +89,14 @@ export interface IStorage {
   getAnalyticsByUser(userId: number): Promise<Analytics[]>;
   getAnalyticsByTest(testId: number): Promise<Analytics[]>;
 
+  // Test Assignment operations
+  createTestAssignment(assignment: InsertTestAssignment): Promise<TestAssignment>;
+  getTestAssignment(id: number): Promise<TestAssignment | undefined>;
+  getTestAssignments(filters: { studentId?: number; testId?: number; status?: string }): Promise<TestAssignment[]>;
+  updateTestAssignment(id: number, update: Partial<InsertTestAssignment>): Promise<TestAssignment | undefined>;
+  getTestAssignmentsByTest(testId: number): Promise<TestAssignment[]>;
+  getTestAssignmentByStudentAndTest(studentId: number, testId: number): Promise<TestAssignment | undefined>;
+
   // Workspace operations
   createWorkspace(workspace: InsertWorkspace): Promise<Workspace>;
   getWorkspace(id: number): Promise<Workspace | undefined>;
@@ -101,10 +128,9 @@ export class MongoStorage implements IStorage {
   sessionStore: session.Store;
 
   constructor() {
-    this.sessionStore = MongoStore.create({
-      mongoUrl: process.env.MONGODB_URL,
-      collectionName: 'sessions',
-      ttl: 24 * 60 * 60 // 1 day
+    const MemStore = MemoryStore(session);
+    this.sessionStore = new MemStore({
+      checkPeriod: 24 * 60 * 60 * 1000, // prune expired entries every 24h
     });
   }
 
@@ -146,6 +172,67 @@ export class MongoStorage implements IStorage {
   async getUsersByClass(className: string): Promise<User[]> {
     const users = await MongoUser.find({ role: 'student', class: className });
     return users.map((u: any) => this.mapMongoDoc<User>(u));
+  }
+
+  async updateUser(id: number, userUpdate: Partial<InsertUser>): Promise<User | undefined> {
+    const user = await MongoUser.findOneAndUpdate({ id }, userUpdate, { new: true });
+    return user ? this.mapMongoDoc<User>(user) : undefined;
+  }
+
+  // Session operations
+  async createSession(sessionData: InsertSession): Promise<Session> {
+    const id = await getNextSequenceValue("session_id");
+    const newSession = new MongoSession({ ...sessionData, id });
+    await newSession.save();
+    return this.mapMongoDoc<Session>(newSession);
+  }
+
+  async getSession(id: number): Promise<Session | undefined> {
+    const sessionDoc = await MongoSession.findOne({ id });
+    return sessionDoc ? this.mapMongoDoc<Session>(sessionDoc) : undefined;
+  }
+
+  async getSessionByRefreshToken(refreshTokenHash: string): Promise<Session | undefined> {
+    const sessionDoc = await MongoSession.findOne({ refreshTokenHash });
+    return sessionDoc ? this.mapMongoDoc<Session>(sessionDoc) : undefined;
+  }
+
+  async deleteSession(id: number): Promise<boolean> {
+    const result = await MongoSession.deleteOne({ id });
+    return result.deletedCount > 0;
+  }
+
+  async deleteAllUserSessions(userId: number): Promise<boolean> {
+    const result = await MongoSession.deleteMany({ userId });
+    return result.deletedCount > 0;
+  }
+
+  // OTP operations
+  async createOtp(otpData: InsertOtp): Promise<Otp> {
+    const id = await getNextSequenceValue("otp_id");
+    const newOtp = new MongoOtp({ ...otpData, id });
+    await newOtp.save();
+    return this.mapMongoDoc<Otp>(newOtp);
+  }
+
+  async getOtp(id: number): Promise<Otp | undefined> {
+    const otpDoc = await MongoOtp.findOne({ id });
+    return otpDoc ? this.mapMongoDoc<Otp>(otpDoc) : undefined;
+  }
+
+  async getValidOtp(userId: number, type: string): Promise<Otp | undefined> {
+    const otpDoc = await MongoOtp.findOne({
+      userId,
+      type,
+      used: false,
+      expiresAt: { $gt: new Date() }
+    }).sort({ createdAt: -1 }); // Get latest
+    return otpDoc ? this.mapMongoDoc<Otp>(otpDoc) : undefined;
+  }
+
+  async markOtpUsed(id: number): Promise<boolean> {
+    const result = await MongoOtp.findOneAndUpdate({ id }, { used: true });
+    return !!result;
   }
 
   // Test operations
@@ -268,6 +355,43 @@ export class MongoStorage implements IStorage {
   async getAnalyticsByTest(testId: number): Promise<Analytics[]> {
     const results = await MongoAnalytics.find({ testId });
     return results.map((r: any) => this.mapMongoDoc<Analytics>(r));
+  }
+
+  // Test Assignment operations
+  async createTestAssignment(assignment: InsertTestAssignment): Promise<TestAssignment> {
+    const id = await getNextSequenceValue("assignment_id");
+    const newAssignment = new MongoTestAssignment({ ...assignment, id });
+    await newAssignment.save();
+    return this.mapMongoDoc<TestAssignment>(newAssignment);
+  }
+
+  async getTestAssignment(id: number): Promise<TestAssignment | undefined> {
+    const assignment = await MongoTestAssignment.findOne({ id });
+    return assignment ? this.mapMongoDoc<TestAssignment>(assignment) : undefined;
+  }
+
+  async getTestAssignments(filters: { studentId?: number; testId?: number; status?: string }): Promise<TestAssignment[]> {
+    const filter: any = {};
+    if (filters.studentId !== undefined) filter.studentId = filters.studentId;
+    if (filters.testId !== undefined) filter.testId = filters.testId;
+    if (filters.status) filter.status = filters.status;
+    const assignments = await MongoTestAssignment.find(filter);
+    return assignments.map((a: any) => this.mapMongoDoc<TestAssignment>(a));
+  }
+
+  async updateTestAssignment(id: number, update: Partial<InsertTestAssignment>): Promise<TestAssignment | undefined> {
+    const assignment = await MongoTestAssignment.findOneAndUpdate({ id }, update, { new: true });
+    return assignment ? this.mapMongoDoc<TestAssignment>(assignment) : undefined;
+  }
+
+  async getTestAssignmentsByTest(testId: number): Promise<TestAssignment[]> {
+    const assignments = await MongoTestAssignment.find({ testId });
+    return assignments.map((a: any) => this.mapMongoDoc<TestAssignment>(a));
+  }
+
+  async getTestAssignmentByStudentAndTest(studentId: number, testId: number): Promise<TestAssignment | undefined> {
+    const assignment = await MongoTestAssignment.findOne({ studentId, testId });
+    return assignment ? this.mapMongoDoc<TestAssignment>(assignment) : undefined;
   }
 
   // ─── Workspace operations ─────────────────────────────────────────────────

@@ -9,85 +9,298 @@ import { upload, diskPathToUrl } from "./lib/upload";
 import { verifyFirebaseToken } from "./lib/firebase-admin";
 import { MongoUser, MongoWorkspace, MongoChannel } from "@shared/mongo-schema";
 import { getNextSequenceValue } from "@shared/mongo-schema";
+import messageRoutes from "./message/routes";
+
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import crypto from "crypto";
+import "express-session";
+
+declare module "express-session" {
+  interface SessionData {
+    userId: number;
+    role: string;
+    firebaseUid?: string;
+  }
+}
+
+const JWT_SECRET = process.env.JWT_SECRET || "super_secret_jwt_key_learning_pro_123";
+const REFRESH_SECRET = process.env.REFRESH_SECRET || "super_secret_refresh_key_learning_pro_456";
+
+// Auth Middleware
+export const authenticateToken = async (req: Request, res: Response, next: express.NextFunction) => {
+  const token = req.cookies?.access_token || req.headers.authorization?.split(" ")[1];
+
+  if (!token) return res.status(401).json({ message: "Authentication required" });
+
+  try {
+    // First attempt: Firebase ID token verification
+    const decodedToken = await verifyFirebaseToken(token);
+
+    if (decodedToken) {
+      // Firebase token successfully verified
+      let user = await MongoUser.findOne({ firebaseUid: decodedToken.uid });
+
+      if (!user && decodedToken.email) {
+        user = await MongoUser.findOne({ email: decodedToken.email });
+        if (user) {
+          user.firebaseUid = decodedToken.uid;
+          if (decodedToken.role) user.role = decodedToken.role as any;
+          await user.save();
+        }
+      }
+
+      if (!user) {
+        if (req.path === '/api/auth/sync-profile') {
+          req.session = req.session || ({} as any);
+          req.session!.firebaseUid = decodedToken.uid;
+          (req.session as any).email = decodedToken.email;
+          return next();
+        }
+        // Auto-create MongoDB user from Firebase token to prevent auth limbo
+        const numericId = await getNextSequenceValue('userId');
+        user = new MongoUser({
+          id: numericId,
+          firebaseUid: decodedToken.uid,
+          email: decodedToken.email || `user_${decodedToken.uid}@firebase`,
+          username: `user_${numericId}`,
+          name: decodedToken.name || decodedToken.email?.split('@')[0] || `User_${numericId}`,
+          displayName: decodedToken.name || null,
+          role: (decodedToken as any).role || 'student',
+          password: 'firebase_managed',
+        });
+        await user.save();
+        console.log(`[auth] Auto-created MongoDB user for Firebase UID: ${decodedToken.uid}`);
+      }
+
+      req.session = req.session || ({} as any);
+      req.session!.userId = user.id;
+      req.session!.role = user.role;
+      req.session!.firebaseUid = decodedToken.uid;
+
+      return next();
+    }
+
+    // Second attempt: JWT verification (for seeded/test users or if Firebase Admin is not configured)
+    try {
+      const jwtPayload = jwt.verify(token, JWT_SECRET) as any;
+      if (jwtPayload?.userId) {
+        const user = await MongoUser.findOne({ id: jwtPayload.userId });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        req.session = req.session || ({} as any);
+        req.session!.userId = user.id;
+        req.session!.role = user.role;
+
+        return next();
+      }
+    } catch (_jwtErr) {
+      // JWT verification also failed — token is truly invalid
+    }
+
+    return res.status(403).json({ message: "Invalid or expired token" });
+  } catch (error) {
+    console.error("Auth middleware error:", error);
+    return res.status(500).json({ message: "Internal Server Error during authentication" });
+  }
+};
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Authentication routes
-  app.post("/api/auth/register", async (req: Request, res: Response) => {
+  // Mount MessagePal REST API routes
+  app.use("/api/messagepal", messageRoutes);
+
+  // Authentication routes (mostly handled by Firebase Client now)
+  // We keep a small route for the client to tell the backend "I just registered in Firebase, create my Mongo document"
+  app.post("/api/auth/sync-profile", authenticateToken, async (req: Request, res: Response) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+      const { displayName, class: className, subject } = req.body;
+      const firebaseUid = req.session!.firebaseUid;
 
-      // Check if user already exists
-      const existingUser = await storage.getUserByUsername(userData.username);
-      if (existingUser) {
-        return res.status(400).json({ message: "Username already exists" });
+      if (!firebaseUid) return res.status(401).json({ message: "Unauthorized" });
+
+      let user = await MongoUser.findOne({ firebaseUid });
+
+      if (user) {
+        // Update existing
+        if (displayName) user.displayName = displayName;
+        if (className) user.class = className;
+        if (subject) user.subject = subject;
+        await user.save();
+      } else {
+        // Create a new mongo user bridge
+        const numericId = await getNextSequenceValue('userId');
+        user = new MongoUser({
+          id: numericId,
+          firebaseUid: firebaseUid,
+          email: (req.session as any).email,
+          username: `user_${Math.random().toString(36).substring(7)}`,
+          name: displayName || (req.session as any).email?.split("@")[0] || "User",
+          displayName: displayName || null,
+          class: className || null,
+          subject: subject || null,
+          role: "student", // default role, custom claims will override on next token validation
+          password: "firebase_managed"
+        });
+        await user.save();
       }
 
-      const existingEmail = await storage.getUserByEmail(userData.email);
-      if (existingEmail) {
-        return res.status(400).json({ message: "Email already exists" });
-      }
-
-      // Create user
-      const user = await storage.createUser(userData);
-
-      // Don't return the password
-      const { password, ...userWithoutPassword } = user;
-
-      // Set session
-      if (req.session) {
-        req.session.userId = user.id;
-        req.session.userRole = user.role;
-      }
-
-      res.status(201).json(userWithoutPassword);
+      res.json({ message: "Profile synced", user });
     } catch (error) {
-      if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid input data", errors: error.errors });
-      }
-      res.status(500).json({ message: "Failed to register user" });
+      res.status(500).json({ message: "Failed to sync profile" });
     }
   });
 
+  // Email/Password Login (for seeded test accounts — bypasses Firebase)
   app.post("/api/auth/login", async (req: Request, res: Response) => {
     try {
-      const { username, password } = req.body;
-
-      if (!username || !password) {
-        return res.status(400).json({ message: "Username and password are required" });
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
       }
 
-      const user = await storage.getUserByUsername(username);
-
-      if (!user || user.password !== password) {
-        return res.status(401).json({ message: "Invalid credentials" });
+      const user = await MongoUser.findOne({ email: email.toLowerCase().trim() }) as any;
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
       }
+
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Issue JWT
+      const accessToken = jwt.sign(
+        { userId: user.id, role: user.role, email: user.email },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
 
       // Set session
       if (req.session) {
         req.session.userId = user.id;
-        req.session.userRole = user.role;
+        req.session.role = user.role;
       }
 
-      // Don't return the password
-      const { password: _, ...userWithoutPassword } = user;
+      // Set cookie
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
 
-      res.status(200).json(userWithoutPassword);
-    } catch (error) {
-      res.status(500).json({ message: "Failed to login" });
+      return res.status(200).json({
+        token: accessToken,
+        userId: user.id,
+        displayName: user.displayName || user.name,
+        role: user.role,
+        email: user.email,
+        avatar: user.avatar,
+      });
+    } catch (err) {
+      console.error("[auth/login] Error:", err);
+      return res.status(500).json({ message: "Login failed" });
     }
   });
 
-  app.post("/api/auth/logout", (req: Request, res: Response) => {
-    req.session?.destroy((err) => {
-      if (err) {
-        return res.status(500).json({ message: "Failed to logout" });
+  // GET /api/auth/me - Get current user from JWT (for test users)
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    try {
+      const token = req.cookies?.access_token || req.headers.authorization?.split(" ")[1];
+      if (!token) return res.status(401).json({ message: "Not authenticated" });
+
+      let userId: number | null = null;
+
+      // Try JWT first
+      try {
+        const payload = jwt.verify(token, JWT_SECRET) as any;
+        userId = payload?.userId;
+      } catch (_) {
+        // Try Firebase
+        const decoded = await verifyFirebaseToken(token);
+        if (decoded) {
+          const user = await MongoUser.findOne({ firebaseUid: decoded.uid }) as any;
+          userId = user?.id;
+        }
       }
-      res.status(200).json({ message: "Logged out successfully" });
-    });
+
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+
+      const user = await MongoUser.findOne({ id: userId }) as any;
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const { password, ...safeUser } = user.toObject();
+      return res.status(200).json(safeUser);
+    } catch (err) {
+      return res.status(500).json({ message: "Failed to get current user" });
+    }
   });
 
-  // User routes
-  app.get("/api/users/me", async (req: Request, res: Response) => {
+  // POST /api/auth/register - Backend-only registration (when Firebase email/password is disabled)
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    try {
+      const { name, email, password, role, class: className } = req.body;
+      if (!name || !email || !password) {
+        return res.status(400).json({ message: "Name, email, and password are required" });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const existingUser = await MongoUser.findOne({ email: normalizedEmail }) as any;
+      if (existingUser) {
+        return res.status(409).json({ message: "An account with this email already exists" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const numericId = await getNextSequenceValue("userId");
+
+      const newUser = new (MongoUser as any)({
+        id: numericId,
+        username: `${normalizedEmail.split("@")[0]}_${numericId}`,
+        password: passwordHash,
+        name,
+        email: normalizedEmail,
+        role: role || "student",
+        displayName: name,
+        class: className || null,
+        status: (role === "teacher") ? "pending" : "active",
+      });
+      await newUser.save();
+
+      const accessToken = jwt.sign(
+        { userId: numericId, role: newUser.role, email: normalizedEmail },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      if (req.session) {
+        req.session.userId = numericId;
+        req.session.role = newUser.role;
+      }
+
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      console.log(`[auth/register] Created new user ${normalizedEmail} (id=${numericId}) with role ${newUser.role}`);
+
+      return res.status(201).json({
+        token: accessToken,
+        userId: numericId,
+        displayName: name,
+        role: newUser.role,
+        email: normalizedEmail,
+      });
+    } catch (err) {
+      console.error("[auth/register] Error:", err);
+      return res.status(500).json({ message: "Registration failed" });
+    }
+  });
+
+
+  app.get("/api/users/me", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -109,9 +322,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Test routes
-  app.post("/api/tests", async (req: Request, res: Response) => {
+  app.post("/api/tests", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "teacher") {
+      if (!req.session?.userId || req.session.role !== "teacher") {
         return res.status(401).json({ message: "Unauthorized: Only teachers can create tests" });
       }
 
@@ -133,7 +346,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tests", async (req: Request, res: Response) => {
+  app.get("/api/tests", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -147,7 +360,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // For teachers: get their own tests or all tests if admin
       // For students: get tests for their class
       let tests;
-      if (req.session.userRole === "teacher") {
+      if (req.session.role === "teacher") {
         tests = await storage.getTests(
           teacherIdNum || req.session.userId,
           status as string | undefined
@@ -174,7 +387,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tests/:id", async (req: Request, res: Response) => {
+  app.get("/api/tests/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -193,9 +406,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if user has access to this test
-      if (req.session.userRole === "teacher" && test.teacherId !== req.session.userId) {
+      if (req.session.role === "teacher" && test.teacherId !== req.session.userId) {
         return res.status(403).json({ message: "Forbidden: Not your test" });
-      } else if (req.session.userRole === "student") {
+      } else if (req.session.role === "student") {
         // Get user to check their class
         const user = await storage.getUser(req.session.userId);
 
@@ -210,9 +423,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/tests/:id", async (req: Request, res: Response) => {
+  app.patch("/api/tests/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "teacher") {
+      if (!req.session?.userId || req.session.role !== "teacher") {
         return res.status(401).json({ message: "Unauthorized: Only teachers can update tests" });
       }
 
@@ -249,9 +462,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Question routes
-  app.post("/api/questions", async (req: Request, res: Response) => {
+  app.post("/api/questions", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "teacher") {
+      if (!req.session?.userId || req.session.role !== "teacher") {
         return res.status(401).json({ message: "Unauthorized: Only teachers can create questions" });
       }
 
@@ -279,7 +492,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/tests/:testId/questions", async (req: Request, res: Response) => {
+  app.get("/api/tests/:testId/questions", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -298,9 +511,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if user has access to this test
-      if (req.session.userRole === "teacher" && test.teacherId !== req.session.userId) {
+      if (req.session.role === "teacher" && test.teacherId !== req.session.userId) {
         return res.status(403).json({ message: "Forbidden: Not your test" });
-      } else if (req.session.userRole === "student") {
+      } else if (req.session.role === "student") {
         // Get user to check their class
         const user = await storage.getUser(req.session.userId);
 
@@ -318,9 +531,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Test Attempt routes
-  app.post("/api/test-attempts", async (req: Request, res: Response) => {
+  app.post("/api/test-attempts", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "student") {
+      if (!req.session?.userId || req.session.role !== "student") {
         return res.status(401).json({ message: "Unauthorized: Only students can attempt tests" });
       }
 
@@ -371,7 +584,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/test-attempts/:id", async (req: Request, res: Response) => {
+  app.patch("/api/test-attempts/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -390,9 +603,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Check if user owns this attempt or is the teacher for this test
-      if (req.session.userRole === "student" && attempt.studentId !== req.session.userId) {
+      if (req.session.role === "student" && attempt.studentId !== req.session.userId) {
         return res.status(403).json({ message: "Forbidden: Not your attempt" });
-      } else if (req.session.userRole === "teacher") {
+      } else if (req.session.role === "teacher") {
         const test = await storage.getTest(attempt.testId);
 
         if (!test || test.teacherId !== req.session.userId) {
@@ -416,9 +629,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Answer routes
-  app.post("/api/answers", async (req: Request, res: Response) => {
+  app.post("/api/answers", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "student") {
+      if (!req.session?.userId || req.session.role !== "student") {
         return res.status(401).json({ message: "Unauthorized: Only students can submit answers" });
       }
 
@@ -465,7 +678,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // OCR routes
-  app.post("/api/ocr", async (req: Request, res: Response) => {
+  app.post("/api/ocr", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -487,9 +700,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI evaluation routes
-  app.post("/api/evaluate", async (req: Request, res: Response) => {
+  app.post("/api/evaluate", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "teacher") {
+      if (!req.session?.userId || req.session.role !== "teacher") {
         return res.status(401).json({ message: "Unauthorized: Only teachers can evaluate answers" });
       }
 
@@ -561,11 +774,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // AI Chat route
-  app.post("/api/ai-chat", async (req: Request, res: Response) => {
+  app.post("/api/ai-chat", authenticateToken, async (req: Request, res: Response) => {
     try {
-      // No longer relying on session auth, Firebase auth is handled client-side
-      // We'll add Firebase verification middleware later if needed
-
       const { messages } = req.body;
 
       if (!messages || !Array.isArray(messages)) {
@@ -584,7 +794,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Chat: Workspace routes ───────────────────────────────────────────────────
 
   // POST /api/workspaces — Create a new workspace
-  app.post("/api/workspaces", async (req: Request, res: Response) => {
+  app.post("/api/workspaces", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -605,7 +815,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/workspaces — List workspaces the current user belongs to
-  app.get("/api/workspaces", async (req: Request, res: Response) => {
+  app.get("/api/workspaces", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const workspaces = await storage.getWorkspaces(req.session.userId);
@@ -616,7 +826,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/workspaces/:id — Get a single workspace
-  app.get("/api/workspaces/:id", async (req: Request, res: Response) => {
+  app.get("/api/workspaces/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const workspace = await storage.getWorkspace(parseInt(req.params.id));
@@ -631,7 +841,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/workspaces/:id/members — Add a member (teacher or owner only)
-  app.post("/api/workspaces/:id/members", async (req: Request, res: Response) => {
+  app.post("/api/workspaces/:id/members", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const workspaceId = parseInt(req.params.id);
@@ -639,7 +849,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!workspace) return res.status(404).json({ message: "Workspace not found" });
 
       // Only owner or teacher can add members
-      if (workspace.ownerId !== req.session.userId && req.session.userRole !== "teacher") {
+      if (workspace.ownerId !== req.session.userId && req.session.role !== "teacher") {
         return res.status(403).json({ message: "Only the workspace owner or teachers can add members" });
       }
 
@@ -656,7 +866,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // DELETE /api/workspaces/:id/members/:userId — Remove a member (teacher or owner)
-  app.delete("/api/workspaces/:id/members/:userId", async (req: Request, res: Response) => {
+  app.delete("/api/workspaces/:id/members/:userId", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const workspaceId = parseInt(req.params.id);
@@ -665,7 +875,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const workspace = await storage.getWorkspace(workspaceId);
       if (!workspace) return res.status(404).json({ message: "Workspace not found" });
 
-      if (workspace.ownerId !== req.session.userId && req.session.userRole !== "teacher") {
+      if (workspace.ownerId !== req.session.userId && req.session.role !== "teacher") {
         return res.status(403).json({ message: "Only the workspace owner or teachers can remove members" });
       }
 
@@ -679,10 +889,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Chat: Channel routes ───────────────────────────────────────────────────
 
   // POST /api/workspaces/:id/channels — Create a channel (teachers only)
-  app.post("/api/workspaces/:id/channels", async (req: Request, res: Response) => {
+  app.post("/api/workspaces/:id/channels", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
-      if (req.session.userRole !== "teacher") {
+      if (req.session.role !== "teacher") {
         return res.status(403).json({ message: "Only teachers can create channels" });
       }
 
@@ -703,7 +913,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/workspaces/:id/channels — List channels in a workspace
-  app.get("/api/workspaces/:id/channels", async (req: Request, res: Response) => {
+  app.get("/api/workspaces/:id/channels", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const workspaceId = parseInt(req.params.id);
@@ -722,7 +932,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Chat: Message routes ───────────────────────────────────────────────────
 
   // GET /api/channels/:id/messages — Paginated message history
-  app.get("/api/channels/:id/messages", async (req: Request, res: Response) => {
+  app.get("/api/channels/:id/messages", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -747,7 +957,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/messages/:channelId — Alias for channel messages used by frontend
-  app.get("/api/messages/:channelId", async (req: Request, res: Response) => {
+  app.get("/api/messages/:channelId", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -779,7 +989,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/messages — Send message via HTTP
-  app.post("/api/messages", async (req: Request, res: Response) => {
+  app.post("/api/messages", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -806,7 +1016,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/channels/dm — Create or get a DM channel
-  app.post("/api/channels/dm", async (req: Request, res: Response) => {
+  app.post("/api/channels/dm", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -830,7 +1040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/users/me/dms — Get all DMs for the current user, enriched with partner info
-  app.get("/api/users/me/dms", async (req: Request, res: Response) => {
+  app.get("/api/users/me/dms", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -868,7 +1078,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // DELETE /api/messages/:id — Delete a message (author or teacher)
-  app.delete("/api/messages/:id", async (req: Request, res: Response) => {
+  app.delete("/api/messages/:id", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -881,7 +1091,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!msg) return res.status(404).json({ message: "Message not found" });
 
       const isAuthor = msg.authorId === req.session.userId;
-      const isTeacher = req.session.userRole === "teacher";
+      const isTeacher = req.session.role === "teacher";
 
       if (!isAuthor && !isTeacher) {
         return res.status(403).json({ message: "You can only delete your own messages" });
@@ -896,10 +1106,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/channels/:id/pin/:messageId — Pin a message (teachers only)
-  app.post("/api/channels/:id/pin/:messageId", async (req: Request, res: Response) => {
+  app.post("/api/channels/:id/pin/:messageId", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
-      if (req.session.userRole !== "teacher") {
+      if (req.session.role !== "teacher") {
         return res.status(403).json({ message: "Only teachers can pin messages" });
       }
 
@@ -916,10 +1126,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // DELETE /api/channels/:id/pin/:messageId — Unpin a message (teachers only)
-  app.delete("/api/channels/:id/pin/:messageId", async (req: Request, res: Response) => {
+  app.delete("/api/channels/:id/pin/:messageId", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
-      if (req.session.userRole !== "teacher") {
+      if (req.session.role !== "teacher") {
         return res.status(403).json({ message: "Only teachers can unpin messages" });
       }
 
@@ -936,7 +1146,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/channels/:id/pinned — Get pinned messages
-  app.get("/api/channels/:id/pinned", async (req: Request, res: Response) => {
+  app.get("/api/channels/:id/pinned", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -958,7 +1168,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/channels/query/:classOrUser — Filtered channels
-  app.get("/api/channels/query/:classOrUser", async (req: Request, res: Response) => {
+  app.get("/api/channels/query/:classOrUser", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const { classOrUser } = req.params;
@@ -982,7 +1192,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // GET /api/channels/:id/unread — Get unread count for a channel
-  app.get("/api/channels/:id/unread", async (req: Request, res: Response) => {
+  app.get("/api/channels/:id/unread", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const channelId = parseInt(req.params.id);
@@ -1001,9 +1211,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/messages/:id/grade — Grade homework (teachers only)
-  app.post("/api/messages/:id/grade", async (req: Request, res: Response) => {
+  app.post("/api/messages/:id/grade", authenticateToken, async (req: Request, res: Response) => {
     try {
-      if (!req.session?.userId || req.session.userRole !== "teacher") {
+      if (!req.session?.userId || req.session.role !== "teacher") {
         return res.status(401).json({ message: "Only teachers can grade homework" });
       }
 
@@ -1027,7 +1237,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/channels — Create a new channel
-  app.post("/api/channels", async (req: Request, res: Response) => {
+  app.post("/api/channels", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -1049,7 +1259,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/messages/:id/read — Mark message as read
-  app.post("/api/messages/:id/read", async (req: Request, res: Response) => {
+  app.post("/api/messages/:id/read", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
       const messageId = parseInt(req.params.id);
@@ -1104,7 +1314,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/auth/firebase", async (req: Request, res: Response) => {
     try {
-      const { idToken } = req.body;
+      const { idToken, role } = req.body;
       if (!idToken || typeof idToken !== "string") {
         return res.status(400).json({ message: "idToken is required" });
       }
@@ -1131,13 +1341,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           password: "firebase-" + uid,
           name: name || email.split("@")[0],
           email,
-          role: "student",
+          role: role || "student",
           avatar: picture || null,
           firebaseUid: uid,
           displayName: name || null,
+          status: (role === "teacher") ? "pending" : "active",
         });
         await mongoUser.save();
-        console.log(`[auth/firebase] Created new user ${email} (id=${id})`);
+        console.log(`[auth/firebase] Created new user ${email} (id=${id}) with role ${mongoUser.role}`);
       } else if (!mongoUser.firebaseUid) {
         mongoUser.firebaseUid = uid;
         if (picture && !mongoUser.avatar) mongoUser.avatar = picture;
@@ -1146,7 +1357,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       if (req.session) {
         req.session.userId = mongoUser.id;
-        req.session.userRole = mongoUser.role;
+        req.session.role = mongoUser.role;
       }
 
       return res.status(200).json({
@@ -1166,7 +1377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GET /api/chat/conversations — Returns all channels accessible to the user.
   // Seeds a default School workspace on first login if the user has none.
 
-  app.get("/api/chat/conversations", async (req: Request, res: Response) => {
+  app.get("/api/chat/conversations", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {
         return res.status(401).json({ message: "Not authenticated" });
@@ -1253,7 +1464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // POST /api/chat/conversations/:id/read — mark all messages in a conversation as read
-  app.post("/api/chat/conversations/:id/read", async (req: Request, res: Response) => {
+  app.post("/api/chat/conversations/:id/read", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
 
@@ -1275,6 +1486,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({ message: "Marked as read" });
     } catch {
       return res.status(500).json({ message: "Failed to mark conversation as read" });
+    }
+  });
+
+  // ─── School Admin API ─────────────────────────────────────────────────────
+
+  app.get("/api/school/teachers", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.userId || (req.session.role !== "school_admin" && req.session.role !== "admin")) {
+        return res.status(403).json({ message: "Forbidden: Access restricted to school administrators" });
+      }
+
+      const admin = await storage.getUser(req.session.userId);
+      if (!admin || !admin.school_code) {
+        return res.status(400).json({ message: "Admin school code not found" });
+      }
+
+      const teachers = await MongoUser.find({
+        role: "teacher",
+        school_code: admin.school_code
+      });
+
+      res.status(200).json(teachers);
+    } catch (error) {
+      console.error("[api/school/teachers] Error:", error);
+      res.status(500).json({ message: "Failed to fetch teachers" });
+    }
+  });
+
+  app.post("/api/school/teachers/:id/approve", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.userId || (req.session.role !== "school_admin" && req.session.role !== "admin")) {
+        return res.status(403).json({ message: "Forbidden: Access restricted to school administrators" });
+      }
+
+      const admin = await storage.getUser(req.session.userId);
+      if (!admin || !admin.school_code) {
+        return res.status(400).json({ message: "Admin school code not found" });
+      }
+
+      const teacherId = parseInt(req.params.id);
+      const teacher = await MongoUser.findOne({ id: teacherId, role: "teacher" });
+
+      if (!teacher) {
+        return res.status(404).json({ message: "Teacher not found" });
+      }
+
+      if (teacher.school_code !== admin.school_code) {
+        return res.status(403).json({ message: "Forbidden: Teacher belongs to a different school" });
+      }
+
+      teacher.status = "active";
+      await teacher.save();
+
+      res.status(200).json({ message: "Teacher approved", teacher });
+    } catch (error) {
+      console.error("[api/school/teachers/approve] Error:", error);
+      res.status(500).json({ message: "Failed to approve teacher" });
     }
   });
 
