@@ -262,7 +262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: role || "student",
         displayName: name,
         class: className || null,
-        status: "active",
+        status: (role === "teacher") ? "pending" : "active",
       });
       await newUser.save();
 
@@ -1345,6 +1345,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           avatar: picture || null,
           firebaseUid: uid,
           displayName: name || null,
+          status: (role === "teacher") ? "pending" : "active",
         });
         await mongoUser.save();
         console.log(`[auth/firebase] Created new user ${email} (id=${id}) with role ${mongoUser.role}`);
@@ -1485,6 +1486,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({ message: "Marked as read" });
     } catch {
       return res.status(500).json({ message: "Failed to mark conversation as read" });
+    }
+  });
+
+  // ─── School Admin API ─────────────────────────────────────────────────────
+
+  app.get("/api/school/teachers", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.userId || (req.session.role !== "school_admin" && req.session.role !== "admin")) {
+        return res.status(403).json({ message: "Forbidden: Access restricted to school administrators" });
+      }
+
+      const admin = await storage.getUser(req.session.userId);
+      if (!admin || !admin.school_code) {
+        return res.status(400).json({ message: "Admin school code not found" });
+      }
+
+      const teachers = await MongoUser.find({
+        role: "teacher",
+        school_code: admin.school_code
+      });
+
+      res.status(200).json(teachers);
+    } catch (error) {
+      console.error("[api/school/teachers] Error:", error);
+      res.status(500).json({ message: "Failed to fetch teachers" });
+    }
+  });
+
+  app.post("/api/school/teachers/:id/approve", authenticateToken, async (req: Request, res: Response) => {
+    try {
+      if (!req.session?.userId || (req.session.role !== "school_admin" && req.session.role !== "admin")) {
+        return res.status(403).json({ message: "Forbidden: Access restricted to school administrators" });
+      }
+
+      const admin = await storage.getUser(req.session.userId);
+      if (!admin || !admin.school_code) {
+        return res.status(400).json({ message: "Admin school code not found" });
+      }
+
+      const teacherId = parseInt(req.params.id);
+      const teacher = await MongoUser.findOne({ id: teacherId, role: "teacher" });
+
+      if (!teacher) {
+        return res.status(404).json({ message: "Teacher not found" });
+      }
+
+      if (teacher.school_code !== admin.school_code) {
+        return res.status(403).json({ message: "Forbidden: Teacher belongs to a different school" });
+      }
+
+      teacher.status = "active";
+      await teacher.save();
+
+      res.status(200).json({ message: "Teacher approved", teacher });
+    } catch (error) {
+      console.error("[api/school/teachers/approve] Error:", error);
+      res.status(500).json({ message: "Failed to approve teacher" });
     }
   });
 
