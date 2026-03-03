@@ -33,7 +33,7 @@ export function BentoSubjectCard({
     return (
         <div
             className={cn(
-                "group relative flex flex-col h-[300px] w-full overflow-hidden rounded-[20px] bg-gradient-to-b from-[#1c232b] to-[#141a20] p-7 transition-all duration-400 ease-[cubic-bezier(0.25,0.8,0.25,1)]",
+                "group relative flex flex-col h-[300px] w-full overflow-hidden rounded-[20px] bg-gradient-to-b from-[#1c232b] to-[#141a20] p-7 transition-all duration-400 ease-\\[cubic-bezier(0.25,0.8,0.25,1)\\]",
                 "border border-white/[0.08] shadow-[0_8px_30px_rgb(0,0,0,0.12)]",
                 !isLocked && "hover:-translate-y-2 hover:border-white/[0.15] hover:shadow-[0_20px_40px_-15px_rgba(0,0,0,0.5)]",
                 className
@@ -118,7 +118,7 @@ export function BentoSubjectCard({
                                     {/* Progress Indicator */}
                                     <circle
                                         className={cn(
-                                            "stroke-current transition-all duration-1000 ease-[cubic-bezier(0.25,0.8,0.25,1)]",
+                                            "stroke-current transition-all duration-1000 ease-\\[cubic-bezier(0.25,0.8,0.25,1)\\]",
                                             progressPercentage >= 90 ? "text-[#3ad29f]" : "text-[#4f8cff]"
                                         )}
                                         strokeWidth={strokeWidth}
@@ -146,7 +146,7 @@ export function BentoSubjectCard({
 
             {/* Hover Actions Bar */}
             {!isLocked && (
-                <div className="absolute bottom-0 left-0 right-0 p-5 pt-16 bg-gradient-to-t from-[#141a20] via-[#141a20]/95 to-transparent translate-y-[110%] opacity-0 transition-all duration-400 ease-[cubic-bezier(0.25,0.8,0.25,1)] group-hover:translate-y-0 group-hover:opacity-100 z-20 flex justify-end gap-2.5">
+                <div className="absolute bottom-0 left-0 right-0 p-5 pt-16 bg-gradient-to-t from-[#141a20] via-[#141a20]/95 to-transparent translate-y-[110%] opacity-0 transition-all duration-400 ease-\\[cubic-bezier(0.25,0.8,0.25,1)\\] group-hover:translate-y-0 group-hover:opacity-100 z-20 flex justify-end gap-2.5">
                     <button
                         onClick={(e) => { e.stopPropagation(); onAction?.('revise'); }}
                         className="flex-1 py-2 px-3 rounded-xl bg-white/5 border border-white/10 text-[13px] font-semibold text-white/80 hover:bg-white/10 hover:text-white transition-colors"
