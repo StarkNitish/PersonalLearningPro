@@ -126,5 +126,8 @@
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"
+  },
+  "overrides": {
+    "sucrase": "3.35.1"
   }
 }
