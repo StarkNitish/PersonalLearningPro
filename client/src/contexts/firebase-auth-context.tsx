@@ -45,6 +45,24 @@ async function getProfileWithTimeout(uid: string): Promise<UserProfile | null> {
   return Promise.race([getUserProfile(uid), timeout]);
 }
 
+/** 
+ * Build a minimal profile directly from a Firebase Auth user when Firestore is unavailable.
+ * This prevents infinite loading if Firestore is blocked/offline, at least showing a default student role.
+ */
+function buildFallbackProfile(user: import("firebase/auth").User): UserProfile | null {
+  if (!user.email) return null;
+  return {
+    uid: user.uid,
+    email: user.email,
+    displayName: user.displayName || user.email.split("@")[0],
+    role: "student", // Safe default; user can be re-authenticated properly later
+    photoURL: user.photoURL || undefined,
+    createdAt: null,
+    lastLogin: null,
+  };
+}
+
+
 // ── Provider ──────────────────────────────────────────────────────────────────
 
 export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -74,9 +92,11 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
         }
         try {
           const profile = await getProfileWithTimeout(user.uid);
-          setCurrentUser({ user, profile });
+          // If Firestore is offline/blocked, build a minimal fallback profile
+          // so the user doesn't get stuck on the login screen indefinitely
+          setCurrentUser({ user, profile: profile ?? buildFallbackProfile(user) });
         } catch {
-          setCurrentUser({ user, profile: null });
+          setCurrentUser({ user, profile: buildFallbackProfile(user) });
         }
       } else {
         setCurrentUser({ user: null, profile: null });
@@ -95,12 +115,13 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
       // Fetch profile ourselves so the dashboard renders immediately and
       // onAuthStateChanged doesn't do a double Firestore read.
       const profile = await getProfileWithTimeout(user.uid);
+      const resolvedProfile = profile ?? buildFallbackProfile(user);
       skipNextAuthStateProfile.current = true;
-      setCurrentUser({ user, profile });
+      setCurrentUser({ user, profile: resolvedProfile });
 
       toast({
         title: "Login successful",
-        description: `Welcome back, ${profile?.displayName || user.displayName || email}!`,
+        description: `Welcome back, ${resolvedProfile?.displayName || user.displayName || email}!`,
       });
     } catch (error: any) {
       setIsLoading(false);

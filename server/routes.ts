@@ -34,49 +34,71 @@ export const authenticateToken = async (req: Request, res: Response, next: expre
   if (!token) return res.status(401).json({ message: "Authentication required" });
 
   try {
+    // First attempt: Firebase ID token verification
     const decodedToken = await verifyFirebaseToken(token);
 
-    if (!decodedToken) {
-      return res.status(403).json({ message: "Invalid or expired token" });
-    }
+    if (decodedToken) {
+      // Firebase token successfully verified
+      let user = await MongoUser.findOne({ firebaseUid: decodedToken.uid });
 
-    // Find MongoDB user by firebaseUid or email to bridge the gap
-    let user = await MongoUser.findOne({ firebaseUid: decodedToken.uid });
-
-    if (!user && decodedToken.email) {
-      user = await MongoUser.findOne({ email: decodedToken.email });
-      if (user) {
-        // Link them up for next time
-        user.firebaseUid = decodedToken.uid;
-        // Sync role from custom claims if they exist, otherwise keep mongo role
-        if (decodedToken.role) {
-          user.role = decodedToken.role as any;
+      if (!user && decodedToken.email) {
+        user = await MongoUser.findOne({ email: decodedToken.email });
+        if (user) {
+          user.firebaseUid = decodedToken.uid;
+          if (decodedToken.role) user.role = decodedToken.role as any;
+          await user.save();
         }
-        await user.save();
       }
+
+      if (!user) {
+        if (req.path === '/api/auth/sync-profile') {
+          req.session = req.session || ({} as any);
+          req.session!.firebaseUid = decodedToken.uid;
+          (req.session as any).email = decodedToken.email;
+          return next();
+        }
+        // Auto-create MongoDB user from Firebase token to prevent auth limbo
+        const numericId = await getNextSequenceValue('userId');
+        user = new MongoUser({
+          id: numericId,
+          firebaseUid: decodedToken.uid,
+          email: decodedToken.email || `user_${decodedToken.uid}@firebase`,
+          username: `user_${numericId}`,
+          name: decodedToken.name || decodedToken.email?.split('@')[0] || `User_${numericId}`,
+          displayName: decodedToken.name || null,
+          role: (decodedToken as any).role || 'student',
+          password: 'firebase_managed',
+        });
+        await user.save();
+        console.log(`[auth] Auto-created MongoDB user for Firebase UID: ${decodedToken.uid}`);
+      }
+
+      req.session = req.session || ({} as any);
+      req.session!.userId = user.id;
+      req.session!.role = user.role;
+      req.session!.firebaseUid = decodedToken.uid;
+
+      return next();
     }
 
-    if (!user) {
-      // If the user tries to hit sync-profile, let them through to create their user
-      if (req.path === '/api/auth/sync-profile') {
+    // Second attempt: JWT verification (for seeded/test users or if Firebase Admin is not configured)
+    try {
+      const jwtPayload = jwt.verify(token, JWT_SECRET) as any;
+      if (jwtPayload?.userId) {
+        const user = await MongoUser.findOne({ id: jwtPayload.userId });
+        if (!user) return res.status(404).json({ message: "User not found" });
+
         req.session = req.session || ({} as any);
-        req.session!.firebaseUid = decodedToken.uid;
-        (req.session as any).email = decodedToken.email;
+        req.session!.userId = user.id;
+        req.session!.role = user.role;
+
         return next();
       }
-
-      // In a full implementation, we might auto-create the MongoDB document here, 
-      // but for now we expect the client to have created it during checkout/registration.
-      return res.status(404).json({ message: "User profile not found in database. Please complete registration." });
+    } catch (_jwtErr) {
+      // JWT verification also failed — token is truly invalid
     }
 
-    // Polyfill req.session to minimize refactoring of existing routes
-    req.session = req.session || ({} as any);
-    req.session!.userId = user.id; // Map to the integer ID
-    req.session!.role = user.role;
-    req.session!.firebaseUid = decodedToken.uid;
-
-    next();
+    return res.status(403).json({ message: "Invalid or expired token" });
   } catch (error) {
     console.error("Auth middleware error:", error);
     return res.status(500).json({ message: "Internal Server Error during authentication" });
@@ -127,6 +149,94 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ message: "Failed to sync profile" });
     }
   });
+
+  // Email/Password Login (for seeded test accounts — bypasses Firebase)
+  app.post("/api/auth/login", async (req: Request, res: Response) => {
+    try {
+      const { email, password } = req.body;
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
+      }
+
+      const user = await MongoUser.findOne({ email: email.toLowerCase().trim() }) as any;
+      if (!user) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      const passwordMatch = await bcrypt.compare(password, user.password);
+      if (!passwordMatch) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      // Issue JWT
+      const accessToken = jwt.sign(
+        { userId: user.id, role: user.role, email: user.email },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      // Set session
+      if (req.session) {
+        req.session.userId = user.id;
+        req.session.role = user.role;
+      }
+
+      // Set cookie
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      return res.status(200).json({
+        token: accessToken,
+        userId: user.id,
+        displayName: user.displayName || user.name,
+        role: user.role,
+        email: user.email,
+        avatar: user.avatar,
+      });
+    } catch (err) {
+      console.error("[auth/login] Error:", err);
+      return res.status(500).json({ message: "Login failed" });
+    }
+  });
+
+  // GET /api/auth/me - Get current user from JWT (for test users)
+  app.get("/api/auth/me", async (req: Request, res: Response) => {
+    try {
+      const token = req.cookies?.access_token || req.headers.authorization?.split(" ")[1];
+      if (!token) return res.status(401).json({ message: "Not authenticated" });
+
+      let userId: number | null = null;
+
+      // Try JWT first
+      try {
+        const payload = jwt.verify(token, JWT_SECRET) as any;
+        userId = payload?.userId;
+      } catch (_) {
+        // Try Firebase
+        const decoded = await verifyFirebaseToken(token);
+        if (decoded) {
+          const user = await MongoUser.findOne({ firebaseUid: decoded.uid }) as any;
+          userId = user?.id;
+        }
+      }
+
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+
+      const user = await MongoUser.findOne({ id: userId }) as any;
+      if (!user) return res.status(404).json({ message: "User not found" });
+
+      const { password, ...safeUser } = user.toObject();
+      return res.status(200).json(safeUser);
+    } catch (err) {
+      return res.status(500).json({ message: "Failed to get current user" });
+    }
+  });
+
+
 
   // User routes
   app.get("/api/users/me", authenticateToken, async (req: Request, res: Response) => {
