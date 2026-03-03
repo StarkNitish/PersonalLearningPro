@@ -11,7 +11,7 @@ import {
   onAuthStateChanged,
   User
 } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import { initializeFirestore, doc, setDoc, getDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 
 // Firebase configuration
 const firebaseConfig = {
@@ -43,7 +43,7 @@ if (!firebaseEnabled) {
 // Initialize Firebase only when credentials are present
 const app = firebaseEnabled ? initializeApp(firebaseConfig) : null;
 export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+export const db = app ? initializeFirestore(app, { experimentalForceLongPolling: true }) : null;
 export const googleProvider = firebaseEnabled
   ? new GoogleAuthProvider()
   : null;
