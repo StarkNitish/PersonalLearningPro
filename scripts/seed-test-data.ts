@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * scripts/seed-test-data.ts
  *
