@@ -175,6 +175,36 @@ export function FirebaseAuthDialog() {
         try {
             await login(data.email, data.password);
         } catch (error: any) {
+            const code = error.code || "";
+            // Firebase email/password might not be enabled — fall back to backend JWT auth
+            if (code === "auth/operation-not-allowed" || code === "auth/invalid-login-credentials" || code === "auth/too-many-requests") {
+                try {
+                    const res = await fetch("/api/auth/login", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({ email: data.email, password: data.password }),
+                    });
+                    if (res.ok) {
+                        const payload = await res.json();
+                        // Store token and reload to refresh auth state
+                        if (payload.token) {
+                            localStorage.setItem("auth_token", payload.token);
+                            localStorage.setItem("auth_user", JSON.stringify(payload));
+                        }
+                        // Reload to trigger app to recognize the session
+                        window.location.href = "/";
+                        return;
+                    } else {
+                        const errBody = await res.json().catch(() => ({}));
+                        setLoginError(errBody.message || "Invalid email or password.");
+                        return;
+                    }
+                } catch (_backendErr) {
+                    setLoginError("Login failed. Please check your credentials and try again.");
+                    return;
+                }
+            }
             setLoginError(error.message || "Login failed. Please try again.");
         }
     }, [login, loginSchema]);
@@ -185,9 +215,53 @@ export function FirebaseAuthDialog() {
             const additionalData = getRoleSpecificData(data.role, data);
             await register(data.email, data.password, data.name, data.role as UserRole, additionalData);
         } catch (error: any) {
+            const code = error.code || "";
+            // If Email/Password auth is not enabled in Firebase, register via backend
+            if (code === "auth/operation-not-allowed") {
+                try {
+                    const res = await fetch("/api/auth/register", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                            name: data.name,
+                            email: data.email,
+                            password: data.password,
+                            role: data.role,
+                            class: data.class,
+                        }),
+                    });
+                    if (res.ok) {
+                        // Now log them in via backend
+                        const loginRes = await fetch("/api/auth/login", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            credentials: "include",
+                            body: JSON.stringify({ email: data.email, password: data.password }),
+                        });
+                        if (loginRes.ok) {
+                            const payload = await loginRes.json();
+                            if (payload.token) {
+                                localStorage.setItem("auth_token", payload.token);
+                                localStorage.setItem("auth_user", JSON.stringify(payload));
+                            }
+                            window.location.href = "/";
+                            return;
+                        }
+                    } else {
+                        const errBody = await res.json().catch(() => ({}));
+                        setRegisterError(errBody.message || "Registration failed. Please try again.");
+                        return;
+                    }
+                } catch (_backendErr) {
+                    setRegisterError("Registration failed. Please try again later.");
+                    return;
+                }
+            }
             setRegisterError(error.message || "Registration failed. Please try again.");
         }
     }, [register, registerSchema]);
+
 
     const onRoleSubmit = useCallback(async (data: z.infer<typeof roleSchema>) => {
         if (!tempGoogleUser) return;

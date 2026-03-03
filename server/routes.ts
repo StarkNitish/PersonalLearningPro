@@ -236,9 +236,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/auth/register - Backend-only registration (when Firebase email/password is disabled)
+  app.post("/api/auth/register", async (req: Request, res: Response) => {
+    try {
+      const { name, email, password, role, class: className } = req.body;
+      if (!name || !email || !password) {
+        return res.status(400).json({ message: "Name, email, and password are required" });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const existingUser = await MongoUser.findOne({ email: normalizedEmail }) as any;
+      if (existingUser) {
+        return res.status(409).json({ message: "An account with this email already exists" });
+      }
+
+      const passwordHash = await bcrypt.hash(password, 10);
+      const numericId = await getNextSequenceValue("userId");
+
+      const newUser = new (MongoUser as any)({
+        id: numericId,
+        username: `${normalizedEmail.split("@")[0]}_${numericId}`,
+        password: passwordHash,
+        name,
+        email: normalizedEmail,
+        role: role || "student",
+        displayName: name,
+        class: className || null,
+        status: "active",
+      });
+      await newUser.save();
+
+      const accessToken = jwt.sign(
+        { userId: numericId, role: newUser.role, email: normalizedEmail },
+        JWT_SECRET,
+        { expiresIn: "7d" }
+      );
+
+      if (req.session) {
+        req.session.userId = numericId;
+        req.session.role = newUser.role;
+      }
+
+      res.cookie("access_token", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
+
+      console.log(`[auth/register] Created new user ${normalizedEmail} (id=${numericId}) with role ${newUser.role}`);
+
+      return res.status(201).json({
+        token: accessToken,
+        userId: numericId,
+        displayName: name,
+        role: newUser.role,
+        email: normalizedEmail,
+      });
+    } catch (err) {
+      console.error("[auth/register] Error:", err);
+      return res.status(500).json({ message: "Registration failed" });
+    }
+  });
 
 
-  // User routes
   app.get("/api/users/me", authenticateToken, async (req: Request, res: Response) => {
     try {
       if (!req.session?.userId) {

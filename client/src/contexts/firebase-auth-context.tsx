@@ -99,6 +99,43 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
           setCurrentUser({ user, profile: buildFallbackProfile(user) });
         }
       } else {
+        // No Firebase user — check if there's a backend JWT in localStorage
+        const storedToken = localStorage.getItem("auth_token");
+        const storedUser = localStorage.getItem("auth_user");
+        if (storedToken && storedUser) {
+          try {
+            const userData = JSON.parse(storedUser);
+            // Verify token is still valid by fetching /api/auth/me
+            const res = await fetch("/api/auth/me", {
+              headers: { Authorization: `Bearer ${storedToken}` },
+              credentials: "include",
+            });
+            if (res.ok) {
+              const backendUser = await res.json();
+              // Create a minimal profile from backend user data
+              const backendProfile: UserProfile = {
+                uid: `backend_${backendUser.id}`,
+                email: backendUser.email,
+                displayName: backendUser.displayName || backendUser.name,
+                role: backendUser.role,
+                photoURL: backendUser.avatar || undefined,
+                createdAt: null,
+                lastLogin: null,
+              };
+              // Use a synthetic "user" shell so the rest of the app works
+              setCurrentUser({ user: null as any, profile: backendProfile });
+              setIsLoading(false);
+              return;
+            } else {
+              // Token expired or invalid — clear it
+              localStorage.removeItem("auth_token");
+              localStorage.removeItem("auth_user");
+            }
+          } catch {
+            localStorage.removeItem("auth_token");
+            localStorage.removeItem("auth_user");
+          }
+        }
         setCurrentUser({ user: null, profile: null });
       }
       setIsLoading(false);
@@ -244,7 +281,15 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
   // ── logout ────────────────────────────────────────────────────────────────
   const logout = async () => {
     try {
-      await logoutUser();
+      // Clear backend JWT auth (for backend-only users)
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("auth_user");
+      document.cookie = "access_token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+
+      // Clear Firebase auth
+      if (firebaseEnabled && auth) {
+        await logoutUser();
+      }
       setCurrentUser({ user: null, profile: null });
       toast({ title: "Logged out", description: "You have been successfully logged out." });
     } catch (error: any) {
@@ -256,6 +301,7 @@ export const FirebaseAuthProvider: React.FC<{ children: React.ReactNode }> = ({ 
       throw error;
     }
   };
+
 
   // ── resetUserPassword ─────────────────────────────────────────────────────
   const resetUserPassword = async (email: string) => {

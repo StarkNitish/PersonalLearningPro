@@ -123,7 +123,9 @@ function ProtectedRoute({
 }) {
   const { currentUser: { user, profile } } = useAuth();
 
-  if (!user || !profile) return <AuthDialog />;
+  // Allow if either Firebase user OR backend JWT profile is set (backend users have no Firebase user)
+  const isAuthenticated = (user || profile) && profile;
+  if (!isAuthenticated) return <AuthDialog />;
 
   if (allowedRoles && !allowedRoles.includes(profile.role)) {
     // Show a forbidden message or redirect
