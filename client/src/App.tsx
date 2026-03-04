@@ -1,3 +1,4 @@
+import type React from "react";
 import { Switch, Route } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -187,6 +188,37 @@ function Router() {
       default: return WrappedDashboard;
     }
   };
+
+  // Role-based route protection
+  const canAccessRoute = (requiredRole: string | string[]) => {
+    const userRole = profile.role;
+    if (Array.isArray(requiredRole)) {
+      return requiredRole.includes(userRole);
+    }
+    return userRole === requiredRole;
+  };
+
+  // Protected route wrapper
+  const ProtectedRoute = ({ component: Component, requiredRole, ...props }: { 
+    component: React.ComponentType, 
+    requiredRole: string | string[] 
+  }) => {
+    if (!canAccessRoute(requiredRole)) {
+      return <NotFound />;
+    }
+    return <Component {...props} />;
+  };
+
+  // Wrap components with protection
+  const ProtectedTeacherDashboard = () => <ProtectedRoute component={WrappedDashboard} requiredRole="teacher" />;
+  const ProtectedPrincipalDashboard = () => <ProtectedRoute component={WrappedPrincipalDashboard} requiredRole="principal" />;
+  const ProtectedAdminDashboard = () => <ProtectedRoute component={WrappedAdminDashboard} requiredRole="admin" />;
+  const ProtectedStudentDashboard = () => <ProtectedRoute component={WrappedStudentDashboard} requiredRole="student" />;
+  const ProtectedCreateTest = () => <ProtectedRoute component={WrappedCreateTest} requiredRole="teacher" />;
+  const ProtectedOcrScan = () => <ProtectedRoute component={WrappedOcrScan} requiredRole="teacher" />;
+  const ProtectedAnalytics = () => <ProtectedRoute component={WrappedAnalytics} requiredRole={["teacher", "principal", "admin"]} />;
+  const ProtectedStudentDirectory = () => <ProtectedRoute component={WrappedStudentDirectory} requiredRole={["teacher", "principal", "admin"]} />;
+  const ProtectedAiTutor = () => <ProtectedRoute component={WrappedAiTutor} requiredRole={["teacher", "student"]} />;
 
   return (
     <Switch>
